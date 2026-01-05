@@ -30,22 +30,19 @@ Once a golden image is prepared, **new satellites require no manual setup** beyo
 
 ## Repository Structure
 
+```
 ha-sat-bootstrap/
 ├── firstboot/
-│ ├── ha-satellite-firstboot.sh # Source-of-truth firstboot script
-│ └── ha-satellite-firstboot.service # Firstboot systemd unit (reference)
-│
+│   ├── ha-satellite-firstboot.sh
+│   └── ha-satellite-firstboot.service
 ├── systemd/
-│ └── ha-satellite.service # Main satellite service unit
-│
+│   └── ha-satellite.service
 ├── templates/
-│ └── satellite.env.example # Fallback defaults
-│
+│   └── satellite.env.example
 ├── inventory/
-│ └── <mac>.env # Per-device configuration
-│
+│   └── <mac>.env
 └── README.md
-
+```
 
 ---
 
@@ -55,11 +52,9 @@ The **golden image** contains:
 
 - `/usr/local/sbin/ha-satellite-firstboot.sh`
 - `/etc/systemd/system/ha-satellite-firstboot.service` (enabled)
-- A working Wyoming Satellite install at:
-  - `/opt/wyoming-satellite`
-- A dedicated service account:
-  - `ha-sat` (member of `audio`)
-- Any required hardware support services (for example: `2mic_leds.service`)
+- A working Wyoming Satellite install at `/opt/wyoming-satellite`
+- A dedicated service account: `ha-sat` (member of `audio`)
+- Any required hardware support services (e.g. `2mic_leds.service`)
 
 ⚠️ The golden image **must not contain per-device identity**.
 
@@ -71,16 +66,19 @@ Each satellite is identified by the MAC address of its primary network interface
 
 ### Inventory filename format
 
+```
 inventory/<mac>.env
+```
 
 Example:
 
-
-Colon-separated MAC format is recommended.
+```
+inventory/2c:cf:67:b1:ad:03.env
+```
 
 ---
 
-### Inventory file example
+## Inventory file example
 
 ```bash
 SAT_HOSTNAME=ha-satellite-09
@@ -93,15 +91,14 @@ SAT_MIC_COMMAND=arecord -D plughw:CARD=seeed2micvoicec,DEV=0 -r 16000 -c 1 -f S1
 SAT_SND_COMMAND=aplay -D plughw:CARD=seeed2micvoicec,DEV=0 -r 22050 -c 1 -f S16_LE -t raw
 ```
 
+---
+
 ## Template Configuration
 
-templates/satellite.env.example is used only if no inventory file matches the device MAC.
+`templates/satellite.env.example` is used **only if no inventory file matches the device MAC**.
 
-It should be intentionally generic and obviously a fallback:
-
-```
+```bash
 # Fallback defaults – overridden by inventory/<mac>.env
-
 SAT_HOSTNAME=ha-satellite
 SAT_NAME=ha-satellite
 
@@ -114,79 +111,40 @@ SAT_MIC_COMMAND=arecord -D plughw:CARD=seeed2micvoicec,DEV=0 -r 16000 -c 1 -f S1
 SAT_SND_COMMAND=aplay -D plughw:CARD=seeed2micvoicec,DEV=0 -r 22050 -c 1 -f S16_LE -t raw
 ```
 
-If a satellite boots using the template, it indicates that:
+---
 
-the MAC address was not registered, or
-the inventory filename is incorrect
+## Firstboot Behavior
 
-Firstboot Behavior
+On **first boot only**, the system will:
 
-On first boot only, the system will:
 1. Install prerequisites
 2. Detect the active network interface MAC address
-3. Clone this repository to: /opt/ha-sat-bootstrap
-4. Select one of:
-    # inventory/<mac>.env
-    # templates/satellite.env.example
-5. Write runtime config to: /etc/ha-satellite/satellite.env
-6. Set the system hostname (if SAT_HOSTNAME is defined)
-7. Install and enable: ha-satellite.service
-8. Disable and remove the firstboot service permanently
+3. Clone this repository to `/opt/ha-sat-bootstrap`
+4. Select the appropriate inventory or template config
+5. Write runtime config to `/etc/ha-satellite/satellite.env`
+6. Set the hostname (if defined)
+7. Install and enable `ha-satellite.service`
+8. Disable the firstboot service permanently
 
-Main Satellite Service
- - Service name: ha-satellite.service
- - Runs as user: ha-sat
- - Executable:
- - - /opt/wyoming-satellite/script/run
-- Configuration source:
-- - /etc/ha-satellite/satellite.env
-- Starts after network and optional LED services
+---
 
-Golden Image Preparation Checklist
+## Golden Image Preparation Checklist
 
-Before cloning a Pi to create new satellites:
-
-```
-# Stop satellite service
+```bash
 sudo systemctl stop ha-satellite.service
-
-# Reset system identity (MANDATORY)
 sudo rm -f /etc/ssh/ssh_host_*
 sudo truncate -s 0 /etc/machine-id
 sudo rm -f /var/lib/dbus/machine-id
 sudo ln -sf /etc/machine-id /var/lib/dbus/machine-id
-
-# Optional home directory cleanup
-rm -f /home/scott/.ssh/known_hosts
-rm -rf /home/scott/.cache/*
-rm -f /home/scott/.bash_history
-
-# Power off before imaging
 sudo poweroff
 ```
 
-## Adding a New Satellite
-
-- Create a new inventory file: inventory/<new-mac>.env
-- Clone the golden image to a new SD card
-- Insert the card into a Raspberry Pi
-- Power on
-
-The satellite will self-configure automatically.
+---
 
 ## Debugging
 
-Firstboot log:
-- cat /var/log/ha-satellite-firstboot.log
-
-Satellite service logs:
-- systemctl status ha-satellite.service
-- journalctl -u ha-satellite.service -f
-
-## Design Philosophy
-
-- Templates are intentionally generic
-- Inventory files define identity
-- Golden images are immutable
-- Firstboot runs once, then disappears
-- Runtime services should be boring and predictable
+```bash
+cat /var/log/ha-satellite-firstboot.log
+systemctl status ha-satellite.service
+journalctl -u ha-satellite.service -f
+```
