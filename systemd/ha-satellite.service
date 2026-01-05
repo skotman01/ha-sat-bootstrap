@@ -1,5 +1,5 @@
 [Unit]
-Description=HA Wyoming Satellite
+Description=HA Satellite
 Wants=network-online.target
 After=network-online.target
 Wants=2mic_leds.service
@@ -8,40 +8,30 @@ After=2mic_leds.service
 [Service]
 Type=simple
 
-# Least-privilege service account
 User=ha-sat
 Group=ha-sat
 SupplementaryGroups=audio
 
-# Per-device config written by firstboot
 EnvironmentFile=-/etc/ha-satellite/satellite.env
 
-# Defaults (systemd-safe, no shell needed)
-Environment=SAT_NAME=ha-satellite-0
+# Defaults if env file missing
+Environment=SAT_NAME=ha-satellite
 Environment=SAT_URI=tcp://0.0.0.0:10700
 Environment=SAT_EVENT_URI=tcp://127.0.0.1:10500
 Environment=SAT_MIC_COMMAND=arecord -r 16000 -c 1 -f S16_LE -t raw
 Environment=SAT_SND_COMMAND=aplay -r 22050 -c 1 -f S16_LE -t raw
-Environment=SAT_DEBUG=1
 
 WorkingDirectory=/opt/wyoming-satellite
 
-ExecStart=/opt/wyoming-satellite/script/run \
-        --debug \
-        --name "$${SAT_NAME}" \
-        --uri "$${SAT_URI}" \
-        --mic-command "$${SAT_MIC_COMMAND}" \
-        --snd-command "$${SAT_SND_COMMAND}" \
-        --event-uri "$${SAT_EVENT_URI}"
+ExecStart=/bin/bash -lc '/opt/wyoming-satellite/script/run \
+  --name "${SAT_NAME}" \
+  --uri "${SAT_URI}" \
+  --mic-command "${SAT_MIC_COMMAND}" \
+  --snd-command "${SAT_SND_COMMAND}" \
+  --event-uri "${SAT_EVENT_URI}"'
 
 Restart=always
 RestartSec=1
-
-# Hardening (safe for this workload)
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=full
-ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
