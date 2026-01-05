@@ -1,93 +1,192 @@
-# ha-sat-bootstrap
+# Home Assistant Wyoming Satellite Bootstrap
+
+This repository provides a **first-boot bootstrap system** for Home Assistant Wyoming voice satellites running on **Raspberry Pi OS Lite**.
+
+It enables:
+
+- Zero-touch provisioning of new satellites
+- Per-device configuration based on **MAC address**
+- Consistent service management via **systemd**
+- A clean **golden image** cloning workflow
+
+Once a golden image is prepared, **new satellites require no manual setup** beyond inserting the SD card and powering on.
+
+---
+
+## Architecture Overview
+
+### High-level flow
+
+1. A Raspberry Pi boots from a **golden image**
+2. A one-time systemd service runs:
+   - Detects the Pi’s MAC address
+   - Clones this repository
+   - Selects the correct per-device config
+   - Installs and enables the satellite service
+3. The bootstrap disables itself permanently
+4. The satellite runs normally on every subsequent boot
+
+---
+
+## Repository Structure
+
+ha-sat-bootstrap/
+├── firstboot/
+│ ├── ha-satellite-firstboot.sh # Source-of-truth firstboot script
+│ └── ha-satellite-firstboot.service # Firstboot systemd unit (reference)
+│
+├── systemd/
+│ └── ha-satellite.service # Main satellite service unit
+│
+├── templates/
+│ └── satellite.env.example # Fallback defaults
+│
+├── inventory/
+│ └── <mac>.env # Per-device configuration
+│
+└── README.md
 
 
+---
 
-## Getting started
+## Golden Image Responsibilities
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+The **golden image** contains:
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+- `/usr/local/sbin/ha-satellite-firstboot.sh`
+- `/etc/systemd/system/ha-satellite-firstboot.service` (enabled)
+- A working Wyoming Satellite install at:
+  - `/opt/wyoming-satellite`
+- A dedicated service account:
+  - `ha-sat` (member of `audio`)
+- Any required hardware support services (for example: `2mic_leds.service`)
 
-## Add your files
+⚠️ The golden image **must not contain per-device identity**.
 
-* [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+---
+
+## Per-Device Configuration (MAC-based)
+
+Each satellite is identified by the MAC address of its primary network interface.
+
+### Inventory filename format
+
+inventory/<mac>.env
+
+Example:
+
+
+Colon-separated MAC format is recommended.
+
+---
+
+### Inventory file example
+
+```bash
+SAT_HOSTNAME=ha-satellite-09
+SAT_NAME=ha-satellite-09
+
+SAT_URI=tcp://0.0.0.0:10700
+SAT_EVENT_URI=tcp://127.0.0.1:10500
+
+SAT_MIC_COMMAND=arecord -D plughw:CARD=seeed2micvoicec,DEV=0 -r 16000 -c 1 -f S16_LE -t raw
+SAT_SND_COMMAND=aplay -D plughw:CARD=seeed2micvoicec,DEV=0 -r 22050 -c 1 -f S16_LE -t raw
+```
+
+## Template Configuration
+
+templates/satellite.env.example is used only if no inventory file matches the device MAC.
+
+It should be intentionally generic and obviously a fallback:
 
 ```
-cd existing_repo
-git remote add origin https://git.scottheath.com/deploy/ha-sat-bootstrap.git
-git branch -M main
-git push -uf origin main
+# Fallback defaults – overridden by inventory/<mac>.env
+
+SAT_HOSTNAME=ha-satellite
+SAT_NAME=ha-satellite
+
+SAT_URI=tcp://0.0.0.0:10700
+SAT_EVENT_URI=tcp://127.0.0.1:10500
+
+SAT_DEBUG=1
+
+SAT_MIC_COMMAND=arecord -D plughw:CARD=seeed2micvoicec,DEV=0 -r 16000 -c 1 -f S16_LE -t raw
+SAT_SND_COMMAND=aplay -D plughw:CARD=seeed2micvoicec,DEV=0 -r 22050 -c 1 -f S16_LE -t raw
 ```
 
-## Integrate with your tools
+If a satellite boots using the template, it indicates that:
 
-* [Set up project integrations](https://git.scottheath.com/deploy/ha-sat-bootstrap/-/settings/integrations)
+the MAC address was not registered, or
+the inventory filename is incorrect
 
-## Collaborate with your team
+Firstboot Behavior
 
-* [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+On first boot only, the system will:
+1. Install prerequisites
+2. Detect the active network interface MAC address
+3. Clone this repository to: /opt/ha-sat-bootstrap
+4. Select one of:
+    # inventory/<mac>.env
+    # templates/satellite.env.example
+5. Write runtime config to: /etc/ha-satellite/satellite.env
+6. Set the system hostname (if SAT_HOSTNAME is defined)
+7. Install and enable: ha-satellite.service
+8. Disable and remove the firstboot service permanently
 
-## Test and Deploy
+Main Satellite Service
+ - Service name: ha-satellite.service
+ - Runs as user: ha-sat
+ - Executable:
+ - - /opt/wyoming-satellite/script/run
+- Configuration source:
+- - /etc/ha-satellite/satellite.env
+- Starts after network and optional LED services
 
-Use the built-in continuous integration in GitLab.
+Golden Image Preparation Checklist
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+Before cloning a Pi to create new satellites:
 
-***
+```
+# Stop satellite service
+sudo systemctl stop ha-satellite.service
 
-# Editing this README
+# Reset system identity (MANDATORY)
+sudo rm -f /etc/ssh/ssh_host_*
+sudo truncate -s 0 /etc/machine-id
+sudo rm -f /var/lib/dbus/machine-id
+sudo ln -sf /etc/machine-id /var/lib/dbus/machine-id
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+# Optional home directory cleanup
+rm -f /home/scott/.ssh/known_hosts
+rm -rf /home/scott/.cache/*
+rm -f /home/scott/.bash_history
 
-## Suggestions for a good README
+# Power off before imaging
+sudo poweroff
+```
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+## Adding a New Satellite
 
-## Name
-Choose a self-explaining name for your project.
+- Create a new inventory file: inventory/<new-mac>.env
+- Clone the golden image to a new SD card
+- Insert the card into a Raspberry Pi
+- Power on
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+The satellite will self-configure automatically.
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+## Debugging
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Firstboot log:
+- cat /var/log/ha-satellite-firstboot.log
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+Satellite service logs:
+- systemctl status ha-satellite.service
+- journalctl -u ha-satellite.service -f
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+## Design Philosophy
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+- Templates are intentionally generic
+- Inventory files define identity
+- Golden images are immutable
+- Firstboot runs once, then disappears
+- Runtime services should be boring and predictable
