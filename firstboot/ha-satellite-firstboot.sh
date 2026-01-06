@@ -21,12 +21,12 @@ RUNTIME_ENV="${RUNTIME_DIR}/satellite.env"
 need_root() { [[ "$(id -u)" -eq 0 ]] || { echo "Run as root"; exit 1; }; }
 need_root
 
-echo "[1/8] Ensure prerequisites"
+echo "[1/10] Ensure prerequisites"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y git rsync ca-certificates
 
-echo "[2/8] Determine MAC address (prefer default route interface)"
+echo "[2/10] Determine MAC address (prefer default route interface)"
 DEFAULT_IF="$(ip route show default 2>/dev/null | awk '{print $5}' | head -n1 || true)"
 
 if [[ -z "${DEFAULT_IF}" ]]; then
@@ -53,7 +53,7 @@ echo "Default IF: ${DEFAULT_IF:-unknown}"
 echo "MAC:        $MAC"
 echo "MAC (nc):   $MAC_NO_COLON"
 
-echo "[3/8] Clone or update repo"
+echo "[3/10] Clone or update repo"
 mkdir -p "$(dirname "$TARGET_DIR")"
 
 if [[ -d "${TARGET_DIR}/.git" ]]; then
@@ -67,7 +67,7 @@ else
   fi
 fi
 
-echo "[4/8] Apply per-device env from inventory/<mac>.env (supports colon + no-colon)"
+echo "[4/10] Apply per-device env from inventory/<mac>.env (supports colon + no-colon)"
 mkdir -p "$RUNTIME_DIR"
 
 INV_PATH_COLON="${TARGET_DIR}/${INVENTORY_DIR}/${MAC}.env"
@@ -91,7 +91,10 @@ else
   exit 2
 fi
 
-echo "[5/8] Optional: set hostname if SAT_HOSTNAME is in env"
+# Normalize line endings (CRLF → LF) so bash/systemd parse vars correctly
+sed -i 's/\r$//' "$RUNTIME_ENV" || true
+
+echo "[5/10] Optional: set hostname if SAT_HOSTNAME is in env"
 set +u
 source "$RUNTIME_ENV" || true
 set -u
@@ -100,7 +103,17 @@ if [[ -n "${SAT_HOSTNAME:-}" ]]; then
   hostnamectl set-hostname "$SAT_HOSTNAME"
 fi
 
-echo "[6/8] Optional: install your main satellite service (if present in repo)"
+echo "[6/10] Install/enable SSH hostkey bootstrap service"
+SSH_BOOTSTRAP_SRC="${TARGET_DIR}/systemd/ssh-hostkey-bootstrap.service"
+if [[ -f "$SSH_BOOTSTRAP_SRC" ]]; then
+  cp "$SSH_BOOTSTRAP_SRC" /etc/systemd/system/ssh-hostkey-bootstrap.service
+  systemctl daemon-reload
+  systemctl enable ssh-hostkey-bootstrap.service
+else
+  echo "NOTE: No $SSH_BOOTSTRAP_SRC found; skipping ssh-hostkey-bootstrap install."
+fi
+
+echo "[7/10] Optional: install your main satellite service (if present in repo)"
 MAIN_UNIT_SRC="${TARGET_DIR}/systemd/ha-satellite.service"
 if [[ -f "$MAIN_UNIT_SRC" ]]; then
   cp "$MAIN_UNIT_SRC" /etc/systemd/system/ha-satellite.service
@@ -111,12 +124,20 @@ else
   echo "NOTE: No ${MAIN_UNIT_SRC} found; skipping main service install."
 fi
 
-echo "[7/8] Disable firstboot (one-time run)"
+echo "[8/10] Ensure SSH is enabled"
+systemctl enable ssh || true
+systemctl restart ssh || true
+
+
+echo "[9/10] Disable firstboot (one-time run)"
 # Prefer disabling the unit that invoked us
 UNIT_TO_DISABLE="${SYSTEMD_UNIT:-ha-satellite-firstboot.service}"
 systemctl disable "$UNIT_TO_DISABLE" || true
 rm -f "/etc/systemd/system/$UNIT_TO_DISABLE" || true
 systemctl daemon-reload || true
 
-echo "[8/8] Done"
+echo "[10/10] Done"
 echo "=== Firstboot complete: $(date -Is) ==="
+
+echo "Installed ha-satellite.service ExecStart:"
+systemctl cat ha-satellite.service | sed -n '1,120p'

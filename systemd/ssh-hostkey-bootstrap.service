@@ -1,0 +1,13 @@
+[Unit]
+Description=Generate SSH host keys if missing
+DefaultDependencies=no
+Before=ssh.service
+Wants=network.target
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'ls /etc/ssh/ssh_host_* >/dev/null 2>&1 || /usr/bin/ssh-keygen -A'
+
+[Install]
+WantedBy=multi-user.target
