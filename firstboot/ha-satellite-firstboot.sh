@@ -54,18 +54,17 @@ echo "MAC:        $MAC"
 echo "MAC (nc):   $MAC_NO_COLON"
 
 echo "[3/10] Clone or update repo"
-mkdir -p "$(dirname "$TARGET_DIR")"
 
 if [[ -d "${TARGET_DIR}/.git" ]]; then
+  echo "Repo exists; resetting to ${REPO_BRANCH}"
   git -C "$TARGET_DIR" fetch --all
-  git -C "$TARGET_DIR" checkout "$REPO_BRANCH"
-  git -C "$TARGET_DIR" pull --ff-only
+  git -C "$TARGET_DIR" reset --hard "origin/${REPO_BRANCH}"
+  git -C "$TARGET_DIR" clean -fd
 else
-  if ! git clone --branch "$REPO_BRANCH" "$REPO_URL" "$TARGET_DIR"; then
-    echo "ERROR: Git clone failed (auth/DNS/network?). Repo: $REPO_URL"
-    exit 3
-  fi
+  mkdir -p "$(dirname "$TARGET_DIR")"
+  git clone --branch "$REPO_BRANCH" "$REPO_URL" "$TARGET_DIR"
 fi
+
 
 echo "[4/10] Apply per-device env from inventory/<mac>.env (supports colon + no-colon)"
 mkdir -p "$RUNTIME_DIR"
