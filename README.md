@@ -260,12 +260,28 @@ On **first boot only**, the system will:
 ## Golden Image Preparation Checklist
 
 ```bash
+# Stop runtime services
 sudo systemctl stop ha-satellite.service
+sudo systemctl stop ssh
+
+# Reset identity
 sudo rm -f /etc/ssh/ssh_host_*
 sudo truncate -s 0 /etc/machine-id
 sudo rm -f /var/lib/dbus/machine-id
 sudo ln -sf /etc/machine-id /var/lib/dbus/machine-id
+
+# Re-assert boot policy
+sudo systemctl enable ssh
+sudo systemctl enable ssh-hostkey-bootstrap.service
+sudo systemctl enable NetworkManager
+
+# Optional hygiene
+rm -f /home/scott/.bash_history
+sudo rm -f /root/.bash_history
+
+# Power off for imaging (do NOT reboot)
 sudo poweroff
+
 ```
 
 ---
