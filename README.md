@@ -313,3 +313,16 @@ sudo cp systemd/alsa-firstboot.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable alsa-firstboot.service
 sudo reboot
+
+
+## Audio architecture (WM8960 + Assist)
+
+- Hardware: Seeed WM8960 (mono speaker)
+- ALSA uses `softvol` for Assist volume control
+- Wyoming Satellite must use `aplay -D default`
+- Volume is controlled via `Assist Volume` (sysdefault)
+
+Do NOT:
+- use hw:/plughw: for snd-command
+- rely on media_player volume (not exposed)
+- touch hardware speaker gains

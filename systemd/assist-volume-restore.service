@@ -1,0 +1,10 @@
+[Unit]
+Description=Restore Assist soft volume
+After=sound.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/amixer -D sysdefault:1 cset name="Assist Volume" 50%
+
+[Install]
+WantedBy=multi-user.target
