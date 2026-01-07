@@ -1,0 +1,11 @@
+[Unit]
+Description=One-time ALSA restore (first boot)
+After=sound.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/alsactl restore /boot/asound.state.golden
+ExecStartPost=/bin/systemctl disable alsa-firstboot.service
+
+[Install]
+WantedBy=multi-user.target

@@ -293,3 +293,21 @@ cat /var/log/ha-satellite-firstboot.log
 systemctl status ha-satellite.service
 journalctl -u ha-satellite.service -f
 ```
+
+## Audio initialization (WM8960)
+
+This system uses a Seeed WM8960-based 2-Mic HAT.
+
+ALSA mixer state is restored on first boot using
+`alsa-firstboot.service`, then persisted normally.
+
+Golden state file:
+- alsa/asound.state.golden
+
+To repro on a new system:
+```bash
+sudo cp alsa/asound.state.golden /boot/
+sudo cp systemd/alsa-firstboot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable alsa-firstboot.service
+sudo reboot
