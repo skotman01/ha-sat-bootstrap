@@ -296,6 +296,8 @@ journalctl -u ha-satellite.service -f
 
 ## Audio initialization (WM8960)
 
+Fix WM8960 speaker amp mute / mono routing; restore ALSA golden state on first boot
+
 This system uses a Seeed WM8960-based 2-Mic HAT.
 
 ALSA mixer state is restored on first boot using
