@@ -18,8 +18,9 @@ EnvironmentFile=-/etc/ha-satellite/satellite.env
 Environment=SAT_NAME=ha-satellite
 Environment=SAT_URI=tcp://0.0.0.0:10700
 Environment=SAT_EVENT_URI=tcp://127.0.0.1:10500
-Environment=SAT_MIC_COMMAND=arecord -r 16000 -c 1 -f S16_LE -t raw
-Environment=SAT_SND_COMMAND=aplay -r 22050 -c 1 -f S16_LE -t raw
+Environment=SAT_MIC_COMMAND=arecord -D plughw:seeed2micvoicec,0 -r 16000 -c 1 -f S16_LE -t raw
+Environment=SAT_SND_COMMAND=aplay -D default -r 22050 -c 1 -f S16_LE -t raw
+
 
 WorkingDirectory=/opt/wyoming-satellite
 

@@ -112,6 +112,25 @@ else
   echo "NOTE: No $SSH_BOOTSTRAP_SRC found; skipping ssh-hostkey-bootstrap install."
 fi
 
+echo "[6.5/10] Install system-wide ALSA config (asound.conf)"
+ASOUND_SRC="${TARGET_DIR}/audio/asound.conf"
+if [[ -f "$ASOUND_SRC" ]]; then
+  install -m 0644 -o root -g root "$ASOUND_SRC" /etc/asound.conf
+else
+  echo "NOTE: No $ASOUND_SRC found; skipping /etc/asound.conf install."
+fi
+
+echo "[6.6/10] Install/enable Assist volume restore service (optional)"
+ASSIST_VOL_UNIT_SRC="${TARGET_DIR}/systemd/assist-volume-restore.service"
+if [[ -f "$ASSIST_VOL_UNIT_SRC" ]]; then
+  cp "$ASSIST_VOL_UNIT_SRC" /etc/systemd/system/assist-volume-restore.service
+  systemctl daemon-reload
+  systemctl enable assist-volume-restore.service
+  systemctl start assist-volume-restore.service || true
+else
+  echo "NOTE: No $ASSIST_VOL_UNIT_SRC found; skipping assist-volume-restore install."
+fi
+
 echo "[7/10] Optional: install your main satellite service (if present in repo)"
 MAIN_UNIT_SRC="${TARGET_DIR}/systemd/ha-satellite.service"
 if [[ -f "$MAIN_UNIT_SRC" ]]; then
