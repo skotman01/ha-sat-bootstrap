@@ -4,6 +4,8 @@ Wants=network-online.target
 After=network-online.target
 Wants=2mic_leds.service
 After=2mic_leds.service
+After=assist-volume-restore.service
+Wants=assist-volume-restore.service
 
 [Service]
 Type=simple
