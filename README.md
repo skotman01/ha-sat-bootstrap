@@ -270,6 +270,9 @@ sudo truncate -s 0 /etc/machine-id
 sudo rm -f /var/lib/dbus/machine-id
 sudo ln -sf /etc/machine-id /var/lib/dbus/machine-id
 
+# Clear network identity (important for clones)
+sudo rm -f /etc/NetworkManager/system-connections/*
+
 # Re-assert boot policy
 sudo systemctl enable ssh
 sudo systemctl enable ssh-hostkey-bootstrap.service
@@ -278,6 +281,9 @@ sudo systemctl enable NetworkManager
 # Optional hygiene
 rm -f /home/scott/.bash_history
 sudo rm -f /root/.bash_history
+
+# Flush filesystem buffers
+sync
 
 # Power off for imaging (do NOT reboot)
 sudo poweroff
