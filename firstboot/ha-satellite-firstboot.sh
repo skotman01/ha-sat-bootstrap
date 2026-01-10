@@ -91,9 +91,8 @@ else
 fi
 
 
-echo "[4/10] Apply runtime env (prefer boot partition: /boot, /bootfs, /boot/firmware)"
+echo "[4/10] Apply runtime env (prefer boot pointer -> fetch MAC env, else template)"
 mkdir -p "$RUNTIME_DIR"
-
 TPL_PATH="${TARGET_DIR}/${TEMPLATE_ENV}"
 
 pick_env() {
@@ -103,55 +102,98 @@ pick_env() {
   sed -i 's/\r$//' "$RUNTIME_ENV" || true
 }
 
+fetch_env() {
+  local url="$1"
+  echo "Attempting fetch: $url"
+
+  local curl_args=(-fsSL --connect-timeout 5 --max-time 15)
+  if [[ -n "${INV_USER:-}" && -n "${INV_TOKEN:-}" ]]; then
+    curl_args+=(-u "${INV_USER}:${INV_TOKEN}")
+  fi
+
+  if curl "${curl_args[@]}" "$url" -o "$RUNTIME_ENV"; then
+    chmod 0640 "$RUNTIME_ENV"
+    chown root:root "$RUNTIME_ENV"
+    sed -i 's/\r$//' "$RUNTIME_ENV" || true
+    echo "Fetched runtime env to: $RUNTIME_ENV"
+    return 0
+  fi
+  return 1
+}
+
+# Find boot env (pointer)
 BOOT_ENV=""
 if BOOT_ENV="$(find_boot_env)"; then
-  pick_env "$BOOT_ENV"
-elif [[ -f "$TPL_PATH" ]]; then
-  echo "NOTE: No boot env found; using template."
-  pick_env "$TPL_PATH"
+  echo "Found boot env: $BOOT_ENV"
+  sed -i 's/\r$//' "$BOOT_ENV" || true
+
+  # Read pointer vars
+  INV_BASE_URL="$(grep -m1 '^INV_BASE_URL=' "$BOOT_ENV" | cut -d= -f2- || true)"
+  INV_USER="$(grep -m1 '^INV_USER=' "$BOOT_ENV" | cut -d= -f2- || true)"
+  INV_TOKEN="$(grep -m1 '^INV_TOKEN=' "$BOOT_ENV" | cut -d= -f2- || true)"
+
+  # Trim
+  INV_BASE_URL="$(printf '%s' "$INV_BASE_URL" | tr -d '\r"' | xargs || true)"
+  INV_USER="$(printf '%s' "$INV_USER" | tr -d '\r"' | xargs || true)"
+  INV_TOKEN="$(printf '%s' "$INV_TOKEN" | tr -d '\r"' | xargs || true)"
+
+  if [[ -n "$INV_BASE_URL" ]]; then
+    URL_COLON="${INV_BASE_URL}/${MAC}.env"
+    URL_NC="${INV_BASE_URL}/${MAC_NO_COLON}.env"
+
+    if fetch_env "$URL_COLON"; then
+      echo "Using inventory env: ${MAC}.env"
+    elif fetch_env "$URL_NC"; then
+      echo "Using inventory env: ${MAC_NO_COLON}.env"
+    else
+      echo "NOTE: Inventory fetch failed for $MAC; will fall back to template."
+      rm -f "$RUNTIME_ENV" || true
+    fi
+  else
+    echo "NOTE: INV_BASE_URL not set in boot env; will fall back to template."
+  fi
 else
-  echo "ERROR: No env found."
-  echo "  Looked for: /boot/ha-satellite.env"
-  echo "             /bootfs/ha-satellite.env"
-  echo "             /boot/firmware/ha-satellite.env"
-  echo "  Tried template: $TPL_PATH"
-  exit 2
+  echo "NOTE: No boot env found; will fall back to template."
 fi
 
-
-
-# Normalize line endings (CRLF → LF) so bash/systemd parse vars correctly
-sed -i 's/\r$//' "$RUNTIME_ENV" || true
+# If we didn't fetch a runtime env, use template
+if [[ ! -f "$RUNTIME_ENV" || ! -s "$RUNTIME_ENV" ]]; then
+  if [[ -f "$TPL_PATH" ]]; then
+    pick_env "$TPL_PATH"
+  else
+    echo "ERROR: No runtime env available and no template present."
+    exit 2
+  fi
+fi
 
 echo "[5/10] Setting hostname from SAT_HOSTNAME (single source of truth)"
 
-# Normalize CRLF → LF
-sed -i 's/\r$//' "$RUNTIME_ENV" || true
-
+# Read SAT_HOSTNAME (KEY=VALUE lines only)
 SAT_HOSTNAME="$(grep -m1 '^SAT_HOSTNAME=' "$RUNTIME_ENV" | cut -d= -f2- || true)"
-SAT_HOSTNAME="$(printf '%s' "$SAT_HOSTNAME" | tr -d '\r" ')"
+# Trim CR, quotes, and surrounding whitespace
+SAT_HOSTNAME="$(printf '%s' "$SAT_HOSTNAME" | tr -d '\r"' | xargs || true)"
 
 if [[ -z "$SAT_HOSTNAME" ]]; then
   echo "SAT_HOSTNAME not set; skipping hostname configuration"
-fi
-
-# Strict validation
-if [[ ! "$SAT_HOSTNAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]; then
-  echo "ERROR: Invalid SAT_HOSTNAME='$SAT_HOSTNAME'"
-  exit 1
-fi
-
-echo "Setting OS hostname to: $SAT_HOSTNAME"
-
-hostnamectl set-hostname "$SAT_HOSTNAME"
-echo "$SAT_HOSTNAME" > /etc/hostname
-
-# Ensure sudo/systemd resolution works
-if grep -qE '^\s*127\.0\.1\.1\s' /etc/hosts; then
-  sed -i "s/^\s*127\.0\.1\.1\s.*/127.0.1.1\t$SAT_HOSTNAME/" /etc/hosts
 else
-  echo -e "127.0.1.1\t$SAT_HOSTNAME" >> /etc/hosts
+  # Strict validation (RFC-ish hostname label)
+  if [[ ! "$SAT_HOSTNAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]; then
+    echo "ERROR: Invalid SAT_HOSTNAME='$SAT_HOSTNAME'"
+    exit 1
+  fi
+
+  echo "Setting OS hostname to: $SAT_HOSTNAME"
+  hostnamectl set-hostname "$SAT_HOSTNAME"
+  echo "$SAT_HOSTNAME" > /etc/hostname
+
+  # Ensure sudo/systemd name resolution works
+  if grep -qE '^\s*127\.0\.1\.1\s' /etc/hosts; then
+    sed -i "s/^\s*127\.0\.1\.1\s.*/127.0.1.1\t$SAT_HOSTNAME/" /etc/hosts
+  else
+    echo -e "127.0.1.1\t$SAT_HOSTNAME" >> /etc/hosts
+  fi
 fi
+
 
 echo "[6/10] Install/enable SSH hostkey bootstrap service"
 SSH_BOOTSTRAP_SRC="${TARGET_DIR}/systemd/ssh-hostkey-bootstrap.service"
