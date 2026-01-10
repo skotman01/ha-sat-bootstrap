@@ -98,10 +98,6 @@ fi
 
 # Normalize line endings (CRLF → LF) so bash/systemd parse vars correctly
 sed -i 's/\r$//' "$RUNTIME_ENV" || true
-# Strip surrounding quotes on command vars if inventory/template included them
-sed -i -E 's/^(SAT_(MIC_COMMAND|SND_COMMAND))="(.*)"$/\1=\3/' "$RUNTIME_ENV" || true
-
-
 
 echo "[5/10] Optional: set hostname if SAT_HOSTNAME is in env"
 

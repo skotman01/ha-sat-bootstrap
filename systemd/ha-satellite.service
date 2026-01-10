@@ -22,8 +22,6 @@ EnvironmentFile=-/etc/ha-satellite/satellite.env
 Environment=SAT_NAME=ha-satellite
 Environment=SAT_URI=tcp://0.0.0.0:10700
 Environment=SAT_EVENT_URI=tcp://127.0.0.1:10500
-Environment="SAT_MIC_COMMAND=arecord -D plughw:seeed2micvoicec,0 -r 16000 -c 1 -f S16_LE -t raw"
-Environment="SAT_SND_COMMAND=aplay -D default -r 22050 -c 1 -f S16_LE -t raw"
 
 
 
@@ -32,9 +30,10 @@ WorkingDirectory=/opt/wyoming-satellite
 ExecStart=/bin/bash -lc '/opt/wyoming-satellite/script/run \
   --name "${SAT_NAME}" \
   --uri "${SAT_URI}" \
-  --mic-command "${SAT_MIC_COMMAND}" \
-  --snd-command "${SAT_SND_COMMAND}" \
-  --event-uri "${SAT_EVENT_URI}"'
+  --event-uri "${SAT_EVENT_URI}" \
+  --mic-command "arecord -D plughw:seeed2micvoicec,0 -r 16000 -c 1 -f S16_LE -t raw" \
+  --snd-command "timeout 6s aplay -D plughw:seeed2micvoicec,0 -r 22050 -c 1 -f S16_LE -t raw"'
+
 
 Restart=always
 RestartSec=1
