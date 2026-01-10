@@ -153,6 +153,18 @@ else
   echo "NOTE: No $ASSIST_VOL_UNIT_SRC found; skipping assist-volume-restore install."
 fi
 
+echo "[6.7/10] Install/enable wyoming-openwakeword service (local wake word)"
+OWW_UNIT_SRC="${TARGET_DIR}/systemd/wyoming-openwakeword.service"
+if [[ -f "$OWW_UNIT_SRC" ]]; then
+  cp "$OWW_UNIT_SRC" /etc/systemd/system/wyoming-openwakeword.service
+  systemctl daemon-reload
+  systemctl enable wyoming-openwakeword.service
+  systemctl restart wyoming-openwakeword.service || true
+else
+  echo "NOTE: No $OWW_UNIT_SRC found; skipping wyoming-openwakeword install."
+fi
+
+
 echo "[7/10] Optional: install your main satellite service (if present in repo)"
 MAIN_UNIT_SRC="${TARGET_DIR}/systemd/ha-satellite.service"
 if [[ -f "$MAIN_UNIT_SRC" ]]; then

@@ -1,0 +1,16 @@
+[Unit]
+Description=Wyoming openWakeWord (local)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ha-sat
+Group=ha-sat
+WorkingDirectory=/opt/wyoming-openwakeword
+ExecStart=/bin/bash -lc 'source /opt/wyoming-openwakeword/.venv/bin/activate && python -m wyoming_openwakeword --uri "tcp://0.0.0.0:10400" --preload-model "alexa"'
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

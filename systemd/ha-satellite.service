@@ -4,10 +4,13 @@ Wants=network-online.target
 After=network-online.target
 Wants=ha-satellite-firstboot.service
 After=ha-satellite-firstboot.service
+Wants=wyoming-openwakeword.service
+After=wyoming-openwakeword.service
 Wants=2mic_leds.service
-After=2mic_leds.service
 After=assist-volume-restore.service
 Wants=assist-volume-restore.service
+
+
 
 [Service]
 Type=simple
@@ -27,6 +30,8 @@ ExecStart=/bin/bash -lc '/opt/wyoming-satellite/script/run \
   --name "${SAT_NAME}" \
   --uri "tcp://0.0.0.0:10700" \
   --event-uri "tcp://127.0.0.1:10500" \
+  --wake-uri "tcp://127.0.0.1:10400" \
+  --wake-word-name "alexa" \
   --mic-command "arecord -D plughw:seeed2micvoicec,0 -r 16000 -c 1 -f S16_LE -t raw" \
   --snd-command "timeout 6s aplay -D plughw:seeed2micvoicec,0 -r 22050 -c 1 -f S16_LE -t raw"'
 
