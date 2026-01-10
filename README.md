@@ -2,18 +2,18 @@
 
 This repository provides a **first-boot bootstrap system** for Home Assistant Wyoming voice satellites running on **Raspberry Pi OS Lite**.
 
-It is designed around a **golden image cloning workflow** with **zero-touch provisioning** for new satellites.
+It is designed around a **golden image cloning workflow** with **zero-touch provisioning** for new satellites, while keeping **per-device identity out of Git**.
 
-Once a golden image is prepared, **new satellites require no manual setup** beyond inserting the SD card and powering on.
+Once a golden image is prepared, **new satellites require no manual setup** beyond inserting the SD card, optionally editing a single file on the boot partition, and powering on.
 
 ---
 
 ## What This Provides
 
-- One-time **first-boot provisioning** via systemd  
-- **MAC-based per-device inventory**  
-- A **single unified runtime environment file**  
-- Deterministic hostname + MQTT identity  
+- One-time **first-boot provisioning** via systemd
+- **Zero-touch** satellite initialization
+- A **single unified runtime environment file**
+- Deterministic hostname + MQTT identity
 - Clean separation between:
   - *golden image state*
   - *per-device identity*
@@ -24,14 +24,31 @@ Once a golden image is prepared, **new satellites require no manual setup** beyo
 ## Core Design Principles
 
 - **Single source of truth**
-  - One runtime env file: `/etc/ha-satellite/satellite.env`
-  - One identity variable: `SAT_HOSTNAME`
+  - Runtime config: `/etc/ha-satellite/satellite.env`
+  - Identity variable: `SAT_HOSTNAME`
+- **No identity in Git**
+  - Hostnames, MACs, credentials are never committed
 - **Idempotent**
-  - Firstboot can safely re-run after re-imaging
+  - Firstboot may safely re-run after re-imaging
 - **Clone-safe**
-  - No per-device identity exists in the golden image
+  - Golden image contains no per-device state
 - **Systemd-native**
-  - No ad-hoc init scripts or login-time hacks
+  - No login-time scripts or ad-hoc init logic
+
+---
+
+## Clone vs Fork
+
+Most users should **clone** this repository directly:
+
+```bash
+git clone https://github.com/<your-org-or-user>/ha-sat-bootstrap.git
+```
+
+Fork this repository **only if** you plan to:
+- modify bootstrap behavior
+- support alternate hardware
+- contribute changes upstream
 
 ---
 
@@ -42,63 +59,69 @@ Once a golden image is prepared, **new satellites require no manual setup** beyo
 On the Raspberry Pi that will become your **golden image**:
 
 #### Prerequisites
-Ensure the following already work **before** imaging:
+Ensure the following already work **before imaging**:
 - `ha-satellite-mq-agent.service`
 - `assist-volume-restore.service`
 - `ha-satellite-firstboot.service` (enabled, not currently running)
 - Wyoming Satellite installed and functional
-- Service user (`ha-sat` or root) is in the `audio` group
+- Service user is a member of the `audio` group
 
 #### Reset identity (mandatory)
 Before capturing the SD card image:
 
+# How to Reset Identity (Required)
+
+Use the provided script from this repository:
+
 ```bash
-sudo systemctl stop ha-satellite-mq-agent.service
-
-# Reset machine identity
-sudo rm -f /etc/ssh/ssh_host_*
-sudo truncate -s 0 /etc/machine-id
-sudo rm -f /var/lib/dbus/machine-id
-sudo ln -sf /etc/machine-id /var/lib/dbus/machine-id
-
-# Power off for imaging (do NOT reboot)
-sudo poweroff
+sudo scripts/golden_image_prep.sh
 ```
 
-Now image or clone the SD card.
+This script:
+- Stops runtime services
+- Removes SSH host keys
+- Resets `machine-id`
+- Leaves configuration intact
+- Prepares the system for safe cloning
+
+When the script completes, it prints clear next steps:
+
+- **Reboot** — re-run firstboot and validate configuration  
+- **Shutdown** — power off and capture the SD card (**do not reboot before imaging**)
 
 ---
 
 ### 2) Add a New Satellite (repeat per device)
 
-1. Boot the cloned SD card in a new Raspberry Pi.
-2. Determine the device MAC address (router, DHCP leases, or `ip link`).
-3. Create an inventory file:
+Per-device configuration is provided **locally**, not via Git.
+
+#### Option A: Configure via boot partition (recommended)
+
+1. Mount the SD card’s **boot** partition on your computer
+2. Create a file:
 
 ```
-inventory/<mac>.env
+/boot/ha-satellite.env
 ```
 
 Example:
-```
-inventory/2c:cf:67:b1:ad:03.env
-```
-
-4. Define **only per-device identity and transport**:
 
 ```bash
-# inventory/2c:cf:67:b1:ad:03.env
-SAT_HOSTNAME=ha-satellite-09
+SAT_HOSTNAME=ha-satellite-kitchen
 
 MQTT_HOST=192.168.1.10
 MQTT_PORT=1883
 MQTT_USER=
 MQTT_PASS=
-
 MQTT_BASE_TOPIC=ha/satellite
 ```
 
-5. Power on the device.
+3. Insert the SD card and power on the Pi
+
+#### Option B: No config file (fallback)
+
+If no `/boot/ha-satellite.env` is present, firstboot will fall back to a template.
+This is suitable only for testing.
 
 ---
 
@@ -106,9 +129,9 @@ MQTT_BASE_TOPIC=ha/satellite
 
 On **first boot only**, the system will:
 
-1. Detect the active network interface MAC
+1. Detect the active network interface
 2. Clone this repository to `/opt/ha-sat-bootstrap`
-3. Select `inventory/<mac>.env` (or fallback template)
+3. Read `/boot/ha-satellite.env` (if present)
 4. Write `/etc/ha-satellite/satellite.env`
 5. Set the OS hostname from `SAT_HOSTNAME`
 6. Enable required runtime services
@@ -153,10 +176,9 @@ ha-sat-bootstrap/
 │   └── assist-volume-restore.service
 ├── templates/
 │   └── satellite.env.example
-├── inventory/
-│   └── <mac>.env
 ├── scripts/
 │   └── golden-image-prep.sh
+├── INSTALL.md
 └── README.md
 ```
 
@@ -175,8 +197,9 @@ It contains:
 - MQTT connection details
 
 Example:
+
 ```bash
-SAT_HOSTNAME=ha-satellite-09
+SAT_HOSTNAME=ha-satellite-kitchen
 
 MQTT_HOST=192.168.1.10
 MQTT_PORT=1883
@@ -199,38 +222,37 @@ The golden image **must contain**:
 
 The golden image **must not contain**:
 - Host-specific identity
-- SSH keys
+- SSH host keys
 - Machine IDs
 - Network identity
 
 ---
 
-## Golden Image Preparation Script
+## Golden Image Prep Script
 
-A helper script is provided to safely reset identity:
+A helper script is provided to reset identity safely:
 
 ```bash
 sudo scripts/golden-image-prep.sh
-sudo reboot
 ```
 
-This ensures:
-- Firstboot logic re-runs cleanly
-- Hostname + env are re-applied
-- Services restart in a known-good order
+At completion, the script prints clear next steps:
+
+- **Reboot** to re-apply firstboot and validate
+- **Shutdown** to capture the SD card image
 
 ---
 
 ## Audio Notes (WM8960 / Assist)
 
 - Hardware: Seeed WM8960 2-Mic HAT (mono speaker)
-- ALSA mixer state is restored via `assist-volume-restore.service`
+- ALSA state is restored via `assist-volume-restore.service`
 - Assist volume is controlled via ALSA `softvol`
 - Wyoming Satellite must use `aplay -D default`
 
 **Do not**:
 - Use `hw:` or `plughw:` for playback
-- Modify hardware gain after golden image capture
+- Modify hardware gains after golden image capture
 
 ---
 
@@ -249,10 +271,7 @@ journalctl -u assist-volume-restore.service -b
 This repository represents **v1** of the bootstrap system:
 - Stable
 - Clone-safe
-- Recoverable
+- Public-friendly
 - Explicit by design
 
-Future iterations may add:
-- Pre-capture validation
-- Self-test commands
-- Optional Home Assistant discovery
+For build-from-scratch instructions, see **INSTALL.md**.

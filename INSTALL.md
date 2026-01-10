@@ -153,7 +153,7 @@ sudo usermod -aG audio ha-sat
 
 ```bash
 cd /opt
-sudo git clone https://github.com/<your-user>/ha-sat-bootstrap.git
+sudo git clone https://github.com/skotman01/ha-sat-bootstrap.git
 sudo chown -R root:root /opt/ha-sat-bootstrap
 ```
 

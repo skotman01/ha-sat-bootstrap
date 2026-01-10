@@ -72,29 +72,60 @@ else
 fi
 
 
-echo "[4/10] Apply per-device env from inventory/<mac>.env (supports colon + no-colon)"
+echo "[4/10] Apply runtime env (prefer /boot, keep identity out of Git)"
 mkdir -p "$RUNTIME_DIR"
 
-INV_PATH_COLON="${TARGET_DIR}/${INVENTORY_DIR}/${MAC}.env"
-INV_PATH_NC="${TARGET_DIR}/${INVENTORY_DIR}/${MAC_NO_COLON}.env"
+# Public-friendly: user-editable config on the boot partition
+BOOT_ENV="/boot/ha-satellite.env"
+
+# Optional: local inventory stored on the device (not in Git)
+LOCAL_INV_DIR="${RUNTIME_DIR}/inventory"
+LOCAL_INV_COLON="${LOCAL_INV_DIR}/${MAC}.env"
+LOCAL_INV_NC="${LOCAL_INV_DIR}/${MAC_NO_COLON}.env"
+
+# Optional (dev-only): repo inventory (consider removing for public releases)
+REPO_INV_COLON="${TARGET_DIR}/${INVENTORY_DIR}/${MAC}.env"
+REPO_INV_NC="${TARGET_DIR}/${INVENTORY_DIR}/${MAC_NO_COLON}.env"
+
 TPL_PATH="${TARGET_DIR}/${TEMPLATE_ENV}"
 
-if [[ -f "$INV_PATH_COLON" ]]; then
-  echo "Using inventory env: $INV_PATH_COLON"
-  install -m 0640 -o root -g root "$INV_PATH_COLON" "$RUNTIME_ENV"
-elif [[ -f "$INV_PATH_NC" ]]; then
-  echo "Using inventory env: $INV_PATH_NC"
-  install -m 0640 -o root -g root "$INV_PATH_NC" "$RUNTIME_ENV"
+pick_env() {
+  local src="$1"
+  echo "Using env: $src"
+  install -m 0640 -o root -g root "$src" "$RUNTIME_ENV"
+  # Normalize line endings (CRLF → LF) so bash/systemd parse vars correctly
+  sed -i 's/\r$//' "$RUNTIME_ENV" || true
+}
+
+if [[ -f "$BOOT_ENV" ]]; then
+  pick_env "$BOOT_ENV"
+
+elif [[ -f "$LOCAL_INV_COLON" ]]; then
+  pick_env "$LOCAL_INV_COLON"
+elif [[ -f "$LOCAL_INV_NC" ]]; then
+  pick_env "$LOCAL_INV_NC"
+
+elif [[ -f "$REPO_INV_COLON" ]]; then
+  echo "NOTE: Using repo inventory (dev-only). Prefer /boot/ha-satellite.env for public usage."
+  pick_env "$REPO_INV_COLON"
+elif [[ -f "$REPO_INV_NC" ]]; then
+  echo "NOTE: Using repo inventory (dev-only). Prefer /boot/ha-satellite.env for public usage."
+  pick_env "$REPO_INV_NC"
+
 elif [[ -f "$TPL_PATH" ]]; then
-  echo "Using template env:  $TPL_PATH"
-  install -m 0640 -o root -g root "$TPL_PATH" "$RUNTIME_ENV"
+  pick_env "$TPL_PATH"
+
 else
-  echo "ERROR: No inventory env or template env found."
-  echo "  Tried: $INV_PATH_COLON"
-  echo "  Tried: $INV_PATH_NC"
+  echo "ERROR: No env found."
+  echo "  Tried: $BOOT_ENV"
+  echo "  Tried: $LOCAL_INV_COLON"
+  echo "  Tried: $LOCAL_INV_NC"
+  echo "  Tried: $REPO_INV_COLON"
+  echo "  Tried: $REPO_INV_NC"
   echo "  Tried: $TPL_PATH"
   exit 2
 fi
+
 
 # Normalize line endings (CRLF → LF) so bash/systemd parse vars correctly
 sed -i 's/\r$//' "$RUNTIME_ENV" || true
@@ -109,7 +140,6 @@ SAT_HOSTNAME="$(printf '%s' "$SAT_HOSTNAME" | tr -d '\r" ')"
 
 if [[ -z "$SAT_HOSTNAME" ]]; then
   echo "SAT_HOSTNAME not set; skipping hostname configuration"
-  exit 0
 fi
 
 # Strict validation
@@ -129,11 +159,6 @@ if grep -qE '^\s*127\.0\.1\.1\s' /etc/hosts; then
 else
   echo -e "127.0.1.1\t$SAT_HOSTNAME" >> /etc/hosts
 fi
-
-
-
-
-
 
 echo "[6/10] Install/enable SSH hostkey bootstrap service"
 SSH_BOOTSTRAP_SRC="${TARGET_DIR}/systemd/ssh-hostkey-bootstrap.service"
@@ -178,15 +203,10 @@ fi
 echo "[6.8/10] Install/enable satellite MQTT agent"
 AGENT_SCRIPT_SRC="${TARGET_DIR}/mq_agent/ha-satellite-mq-agent.py"
 AGENT_UNIT_SRC="${TARGET_DIR}/systemd/ha-satellite-mq-agent.service"
-AGENT_ENV_TPL="${TARGET_DIR}/templates/mq_agent.env.example"
 
 if [[ -f "$AGENT_SCRIPT_SRC" && -f "$AGENT_UNIT_SRC" ]]; then
   install -m 0755 -o root -g root "$AGENT_SCRIPT_SRC" /usr/local/bin/ha-satellite-mq-agent.py
   cp "$AGENT_UNIT_SRC" /etc/systemd/system/ha-satellite-mq-agent.service
-
-  if [[ ! -f /etc/ha-satellite/mq_agent.env && -f "$AGENT_ENV_TPL" ]]; then
-    install -m 0640 -o root -g root "$AGENT_ENV_TPL" /etc/ha-satellite/mq_agent.env
-  fi
 
   systemctl daemon-reload
   systemctl enable ha-satellite-mq-agent.service

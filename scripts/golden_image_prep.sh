@@ -19,12 +19,31 @@ sudo systemctl enable ssh-hostkey-bootstrap.service
 sudo systemctl enable NetworkManager
 
 # Optional hygiene
-rm -f /home/scott/.bash_history
+rm -f ~/.bash_history
 sudo rm -f /root/.bash_history
 
 # Flush filesystem buffers
 sync
 
-# Power off for imaging (do NOT reboot)
-# sudo poweroff
+echo
+echo "============================================================"
+echo " Golden Image Prep Complete"
+echo "============================================================"
+echo
+echo "System identity has been reset and services stopped."
+echo
+echo "Next steps:"
+echo
+echo "  • Reboot  : Re-run firstboot and re-apply configuration"
+echo "              (use this to validate before capture)"
+echo
+echo "  • Shutdown: Power off now to safely capture the SD card"
+echo "              (do NOT reboot before imaging)"
+echo
+echo "Choose ONE:"
+echo
+echo "  sudo reboot"
+echo "  sudo poweroff"
+echo
+echo "============================================================"
 
