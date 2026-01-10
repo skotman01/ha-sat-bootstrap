@@ -7,7 +7,7 @@ exec > >(tee -a "$LOG") 2>&1
 echo "=== HA Satellite Firstboot: $(date -Is) ==="
 
 # ---- EDIT THESE ----
-REPO_URL="https://git.scottheath.com/deploy/ha-sat-bootstrap"
+REPO_URL="https://github.com/skotman01/ha-sat-bootstrap.git"
 REPO_BRANCH="main"
 TARGET_DIR="/opt/ha-sat-bootstrap"
 
@@ -26,6 +26,25 @@ if [[ -f "$MARKER" ]]; then
   echo "Marker exists ($MARKER); skipping firstboot."
   exit 0
 fi
+
+find_boot_env() {
+  # Prefer common mount points for the FAT boot partition
+  local candidates=(
+    "/boot/ha-satellite.env"
+    "/bootfs/ha-satellite.env"
+    "/boot/firmware/ha-satellite.env"
+  )
+
+  for f in "${candidates[@]}"; do
+    if [[ -f "$f" ]]; then
+      echo "$f"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 
 echo "[1/10] Ensure prerequisites"
 export DEBIAN_FRONTEND=noninteractive
@@ -72,20 +91,8 @@ else
 fi
 
 
-echo "[4/10] Apply runtime env (prefer /boot, keep identity out of Git)"
+echo "[4/10] Apply runtime env (prefer boot partition: /boot, /bootfs, /boot/firmware)"
 mkdir -p "$RUNTIME_DIR"
-
-# Public-friendly: user-editable config on the boot partition
-BOOT_ENV="/boot/ha-satellite.env"
-
-# Optional: local inventory stored on the device (not in Git)
-LOCAL_INV_DIR="${RUNTIME_DIR}/inventory"
-LOCAL_INV_COLON="${LOCAL_INV_DIR}/${MAC}.env"
-LOCAL_INV_NC="${LOCAL_INV_DIR}/${MAC_NO_COLON}.env"
-
-# Optional (dev-only): repo inventory (consider removing for public releases)
-REPO_INV_COLON="${TARGET_DIR}/${INVENTORY_DIR}/${MAC}.env"
-REPO_INV_NC="${TARGET_DIR}/${INVENTORY_DIR}/${MAC_NO_COLON}.env"
 
 TPL_PATH="${TARGET_DIR}/${TEMPLATE_ENV}"
 
@@ -93,38 +100,24 @@ pick_env() {
   local src="$1"
   echo "Using env: $src"
   install -m 0640 -o root -g root "$src" "$RUNTIME_ENV"
-  # Normalize line endings (CRLF → LF) so bash/systemd parse vars correctly
   sed -i 's/\r$//' "$RUNTIME_ENV" || true
 }
 
-if [[ -f "$BOOT_ENV" ]]; then
+BOOT_ENV=""
+if BOOT_ENV="$(find_boot_env)"; then
   pick_env "$BOOT_ENV"
-
-elif [[ -f "$LOCAL_INV_COLON" ]]; then
-  pick_env "$LOCAL_INV_COLON"
-elif [[ -f "$LOCAL_INV_NC" ]]; then
-  pick_env "$LOCAL_INV_NC"
-
-elif [[ -f "$REPO_INV_COLON" ]]; then
-  echo "NOTE: Using repo inventory (dev-only). Prefer /boot/ha-satellite.env for public usage."
-  pick_env "$REPO_INV_COLON"
-elif [[ -f "$REPO_INV_NC" ]]; then
-  echo "NOTE: Using repo inventory (dev-only). Prefer /boot/ha-satellite.env for public usage."
-  pick_env "$REPO_INV_NC"
-
 elif [[ -f "$TPL_PATH" ]]; then
+  echo "NOTE: No boot env found; using template."
   pick_env "$TPL_PATH"
-
 else
   echo "ERROR: No env found."
-  echo "  Tried: $BOOT_ENV"
-  echo "  Tried: $LOCAL_INV_COLON"
-  echo "  Tried: $LOCAL_INV_NC"
-  echo "  Tried: $REPO_INV_COLON"
-  echo "  Tried: $REPO_INV_NC"
-  echo "  Tried: $TPL_PATH"
+  echo "  Looked for: /boot/ha-satellite.env"
+  echo "             /bootfs/ha-satellite.env"
+  echo "             /boot/firmware/ha-satellite.env"
+  echo "  Tried template: $TPL_PATH"
   exit 2
 fi
+
 
 
 # Normalize line endings (CRLF → LF) so bash/systemd parse vars correctly
