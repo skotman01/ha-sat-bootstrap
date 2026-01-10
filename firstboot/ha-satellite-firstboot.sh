@@ -99,26 +99,37 @@ fi
 # Normalize line endings (CRLF → LF) so bash/systemd parse vars correctly
 sed -i 's/\r$//' "$RUNTIME_ENV" || true
 
-echo "[5/10] Optional: set hostname if SAT_HOSTNAME is in env"
+echo "[5/10] Setting hostname from SAT_HOSTNAME (single source of truth)"
 
-# Read simple KEY=VALUE lines safely (no execution)
+# Normalize CRLF → LF
+sed -i 's/\r$//' "$RUNTIME_ENV" || true
+
 SAT_HOSTNAME="$(grep -m1 '^SAT_HOSTNAME=' "$RUNTIME_ENV" | cut -d= -f2- || true)"
-SAT_NAME="$(grep -m1 '^SAT_NAME=' "$RUNTIME_ENV" | cut -d= -f2- || true)"
+SAT_HOSTNAME="$(printf '%s' "$SAT_HOSTNAME" | tr -d '\r" ')"
 
-# If SAT_HOSTNAME exists but SAT_NAME doesn't, set SAT_NAME to match
-if [[ -n "${SAT_HOSTNAME}" && -z "${SAT_NAME}" ]]; then
-  if grep -q '^SAT_NAME=' "$RUNTIME_ENV"; then
-    sed -i "s|^SAT_NAME=.*|SAT_NAME=${SAT_HOSTNAME}|" "$RUNTIME_ENV"
-  else
-    echo "SAT_NAME=${SAT_HOSTNAME}" >> "$RUNTIME_ENV"
-  fi
+if [[ -z "$SAT_HOSTNAME" ]]; then
+  echo "SAT_HOSTNAME not set; skipping hostname configuration"
+  exit 0
 fi
 
-# Set OS hostname if provided
-if [[ -n "${SAT_HOSTNAME}" ]]; then
-  echo "Setting hostname to: $SAT_HOSTNAME"
-  hostnamectl set-hostname "$SAT_HOSTNAME"
+# Strict validation
+if [[ ! "$SAT_HOSTNAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]]; then
+  echo "ERROR: Invalid SAT_HOSTNAME='$SAT_HOSTNAME'"
+  exit 1
 fi
+
+echo "Setting OS hostname to: $SAT_HOSTNAME"
+
+hostnamectl set-hostname "$SAT_HOSTNAME"
+echo "$SAT_HOSTNAME" > /etc/hostname
+
+# Ensure sudo/systemd resolution works
+if grep -qE '^\s*127\.0\.1\.1\s' /etc/hosts; then
+  sed -i "s/^\s*127\.0\.1\.1\s.*/127.0.1.1\t$SAT_HOSTNAME/" /etc/hosts
+else
+  echo -e "127.0.1.1\t$SAT_HOSTNAME" >> /etc/hosts
+fi
+
 
 
 

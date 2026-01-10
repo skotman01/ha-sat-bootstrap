@@ -13,9 +13,6 @@ sudo rm -f /etc/ha-satellite/.provisioned
 sudo rm -f /etc/ha-satellite/satellite.env
 sudo rm -f /etc/ha-satellite/mq_agent.env
 
-# Clear network identity (important for clones)
-sudo rm -f /etc/NetworkManager/system-connections/*
-
 # Re-assert boot policy
 sudo systemctl enable ssh
 sudo systemctl enable ssh-hostkey-bootstrap.service

@@ -9,18 +9,24 @@ User=root
 Restart=always
 RestartSec=2
 
-# Load per-node settings (recommended)
-EnvironmentFile=-/etc/ha-satellite/mq_agent.env
+# Single source of truth
+EnvironmentFile=-/etc/ha-satellite/satellite.env
 
-# Sensible defaults
-Environment=ALSA_NUMID=13
-Environment=MQTT_BASE=ha-satellite
-Environment=ALSA_CARD=1
-Environment=VOL_MIN=0
-Environment=VOL_MAX=255
+# Defaults (can be overridden in satellite.env)
+Environment=MQTT_BASE_TOPIC=ha/satellite
+Environment=MQTT_PORT=1883
+Environment=MQTT_QOS=0
 Environment=PUBLISH_STATE=1
 Environment=RETAIN_STATE=0
-Environment=MQTT_QOS=0
+
+# Volume / ALSA defaults (keep here or move into env if you want)
+Environment=ALSA_CARD=1
+Environment=ALSA_NUMID=13
+Environment=VOL_MIN=0
+Environment=VOL_MAX=255
+
+# Fail fast if identity is missing (prevents anonymous topics / weird behavior)
+ExecStartPre=/bin/sh -c 'test -n "$SAT_HOSTNAME"'
 
 ExecStart=/usr/local/bin/ha-satellite-mq-agent.py
 
