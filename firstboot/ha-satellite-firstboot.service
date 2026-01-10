@@ -2,7 +2,6 @@
 Description=HA Satellite First Boot Bootstrap
 Wants=network-online.target
 After=network-online.target
-Before=ha-satellite.service
 
 [Service]
 Type=oneshot

@@ -170,7 +170,7 @@ if [[ -f "$MAIN_UNIT_SRC" ]]; then
   cp "$MAIN_UNIT_SRC" /etc/systemd/system/ha-satellite.service
   systemctl daemon-reload
   systemctl enable ha-satellite.service
-  systemctl restart ha-satellite.service || true
+  systemctl start --no-block ha-satellite.service || true
   systemctl reset-failed ha-satellite.service || true
 
 else
