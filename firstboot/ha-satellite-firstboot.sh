@@ -105,33 +105,24 @@ sed -i -E 's/^(SAT_(MIC_COMMAND|SND_COMMAND))="(.*)"$/\1=\3/' "$RUNTIME_ENV" || 
 
 echo "[5/10] Optional: set hostname if SAT_HOSTNAME is in env"
 
-# Load env vars from the file we just installed
-set +u
-source "$RUNTIME_ENV" || true
-set -u
+SAT_HOSTNAME="$(grep -m1 '^SAT_HOSTNAME=' "$RUNTIME_ENV" | cut -d= -f2- || true)"
+SAT_NAME="$(grep -m1 '^SAT_NAME=' "$RUNTIME_ENV" | cut -d= -f2- || true)"
 
-# If SAT_HOSTNAME exists but SAT_NAME doesn't, set SAT_NAME to match (once)
-if [[ -n "${SAT_HOSTNAME:-}" && -z "${SAT_NAME:-}" ]]; then
-  # escape '&' for sed replacement safety
-  _hn_sed=${SAT_HOSTNAME//&/\\&}
-
+# If SAT_HOSTNAME exists but SAT_NAME doesn't, set SAT_NAME to match
+if [[ -n "${SAT_HOSTNAME}" && -z "${SAT_NAME}" ]]; then
   if grep -q '^SAT_NAME=' "$RUNTIME_ENV"; then
-    sed -i "s|^SAT_NAME=.*|SAT_NAME=${_hn_sed}|" "$RUNTIME_ENV"
+    sed -i "s|^SAT_NAME=.*|SAT_NAME=${SAT_HOSTNAME}|" "$RUNTIME_ENV"
   else
     echo "SAT_NAME=${SAT_HOSTNAME}" >> "$RUNTIME_ENV"
   fi
-
-  # Reload so the shell matches the file
-  set +u
-  source "$RUNTIME_ENV" || true
-  set -u
 fi
 
 # Set OS hostname if provided
-if [[ -n "${SAT_HOSTNAME:-}" ]]; then
+if [[ -n "${SAT_HOSTNAME}" ]]; then
   echo "Setting hostname to: $SAT_HOSTNAME"
   hostnamectl set-hostname "$SAT_HOSTNAME"
 fi
+
 
 
 
