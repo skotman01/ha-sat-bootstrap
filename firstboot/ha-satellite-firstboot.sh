@@ -105,6 +105,7 @@ sed -i -E 's/^(SAT_(MIC_COMMAND|SND_COMMAND))="(.*)"$/\1=\3/' "$RUNTIME_ENV" || 
 
 echo "[5/10] Optional: set hostname if SAT_HOSTNAME is in env"
 
+# Read simple KEY=VALUE lines safely (no execution)
 SAT_HOSTNAME="$(grep -m1 '^SAT_HOSTNAME=' "$RUNTIME_ENV" | cut -d= -f2- || true)"
 SAT_NAME="$(grep -m1 '^SAT_NAME=' "$RUNTIME_ENV" | cut -d= -f2- || true)"
 
@@ -122,6 +123,7 @@ if [[ -n "${SAT_HOSTNAME}" ]]; then
   echo "Setting hostname to: $SAT_HOSTNAME"
   hostnamectl set-hostname "$SAT_HOSTNAME"
 fi
+
 
 
 
