@@ -1,0 +1,28 @@
+[Unit]
+Description=HA Satellite Agent (MQTT)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+Restart=always
+RestartSec=2
+
+# Load per-node settings (recommended)
+EnvironmentFile=-/etc/ha-satellite/mq_agent.env
+
+# Sensible defaults
+Environment=ALSA_NUMID=13
+Environment=MQTT_BASE=ha-satellite
+Environment=ALSA_CARD=1
+Environment=VOL_MIN=0
+Environment=VOL_MAX=255
+Environment=PUBLISH_STATE=1
+Environment=RETAIN_STATE=0
+Environment=MQTT_QOS=0
+
+ExecStart=/usr/local/bin/ha-satellite-mq-agent.py
+
+[Install]
+WantedBy=multi-user.target

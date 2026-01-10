@@ -164,6 +164,26 @@ else
   echo "NOTE: No $OWW_UNIT_SRC found; skipping wyoming-openwakeword install."
 fi
 
+echo "[6.8/10] Install/enable satellite MQTT agent"
+AGENT_SCRIPT_SRC="${TARGET_DIR}/mq_agent/ha-satellite-mq-agent.py"
+AGENT_UNIT_SRC="${TARGET_DIR}/systemd/ha-satellite-mq-agent.service"
+AGENT_ENV_TPL="${TARGET_DIR}/templates/mq_agent.env.example"
+
+if [[ -f "$AGENT_SCRIPT_SRC" && -f "$AGENT_UNIT_SRC" ]]; then
+  install -m 0755 -o root -g root "$AGENT_SCRIPT_SRC" /usr/local/bin/ha-satellite-mq-agent.py
+  cp "$AGENT_UNIT_SRC" /etc/systemd/system/ha-satellite-mq-agent.service
+
+  if [[ ! -f /etc/ha-satellite/mq_agent.env && -f "$AGENT_ENV_TPL" ]]; then
+    install -m 0640 -o root -g root "$AGENT_ENV_TPL" /etc/ha-satellite/mq_agent.env
+  fi
+
+  systemctl daemon-reload
+  systemctl enable ha-satellite-mq-agent.service
+  systemctl restart ha-satellite-mq-agent.service || true
+else
+  echo "NOTE: satellite-mq-agent files missing; skipping install."
+fi
+
 
 echo "[7/10] Optional: install your main satellite service (if present in repo)"
 MAIN_UNIT_SRC="${TARGET_DIR}/systemd/ha-satellite.service"

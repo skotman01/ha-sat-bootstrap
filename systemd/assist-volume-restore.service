@@ -1,10 +1,13 @@
 [Unit]
-Description=Restore Assist soft volume
+Description=Restore Assist volume
 After=sound.target
+Wants=sound.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/amixer -D sysdefault:1 cset name="Assist Volume" 50%
+# Wait for ALSA to settle, then retry a few times
+ExecStart=/bin/bash -lc 'for i in {1..10}; do /usr/bin/amixer -c 1 cset name="Speaker Playback Volume" 110 && exit 0; sleep 1; done; exit 1'
+RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
