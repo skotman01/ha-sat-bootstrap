@@ -2,158 +2,142 @@
 
 This repository provides a **first-boot bootstrap system** for Home Assistant Wyoming voice satellites running on **Raspberry Pi OS Lite**.
 
-It enables:
-
-- Zero-touch provisioning of new satellites
-- Per-device configuration based on **MAC address**
-- Consistent service management via **systemd**
-- A clean **golden image** cloning workflow
+It is designed around a **golden image cloning workflow** with **zero-touch provisioning** for new satellites.
 
 Once a golden image is prepared, **new satellites require no manual setup** beyond inserting the SD card and powering on.
 
 ---
 
+## What This Provides
+
+- One-time **first-boot provisioning** via systemd  
+- **MAC-based per-device inventory**  
+- A **single unified runtime environment file**  
+- Deterministic hostname + MQTT identity  
+- Clean separation between:
+  - *golden image state*
+  - *per-device identity*
+- A safe, repeatable **re-image / recovery path**
+
+---
+
+## Core Design Principles
+
+- **Single source of truth**
+  - One runtime env file: `/etc/ha-satellite/satellite.env`
+  - One identity variable: `SAT_HOSTNAME`
+- **Idempotent**
+  - Firstboot can safely re-run after re-imaging
+- **Clone-safe**
+  - No per-device identity exists in the golden image
+- **Systemd-native**
+  - No ad-hoc init scripts or login-time hacks
+
+---
+
 ## Quick Start
 
-### 1) Prepare the golden image (do once)
+### 1) Prepare the Golden Image (do once)
 
-On your “golden” Raspberry Pi OS Lite satellite (the one you will clone):
+On the Raspberry Pi that will become your **golden image**:
 
-1. Ensure these are working:
-   - `ha-satellite.service` (main runtime service)
-   - `ha-satellite-firstboot.service` (one-time bootstrap, **enabled** but not currently running)
-   - Wyoming Satellite code at `/opt/wyoming-satellite`
-   - Service user `ha-sat` is in the `audio` group
-2. Before imaging/cloning the SD card, reset identity so each clone is unique:
+#### Prerequisites
+Ensure the following already work **before** imaging:
+- `ha-satellite-mq-agent.service`
+- `assist-volume-restore.service`
+- `ha-satellite-firstboot.service` (enabled, not currently running)
+- Wyoming Satellite installed and functional
+- Service user (`ha-sat` or root) is in the `audio` group
+
+#### Reset identity (mandatory)
+Before capturing the SD card image:
 
 ```bash
-sudo systemctl stop ha-satellite.service
+sudo systemctl stop ha-satellite-mq-agent.service
 
-# Reset identity (MANDATORY)
+# Reset machine identity
 sudo rm -f /etc/ssh/ssh_host_*
 sudo truncate -s 0 /etc/machine-id
 sudo rm -f /var/lib/dbus/machine-id
 sudo ln -sf /etc/machine-id /var/lib/dbus/machine-id
 
+# Power off for imaging (do NOT reboot)
 sudo poweroff
 ```
 
-Now image/clone the SD card.
+Now image or clone the SD card.
 
 ---
 
-### 2) Add a new satellite (repeat per device)
+### 2) Add a New Satellite (repeat per device)
 
-1. Find the new Pi’s MAC address (from your router/DHCP leases, a sticker, or `ip link` once booted).
-2. Create an inventory file:
+1. Boot the cloned SD card in a new Raspberry Pi.
+2. Determine the device MAC address (router, DHCP leases, or `ip link`).
+3. Create an inventory file:
 
 ```
 inventory/<mac>.env
 ```
 
 Example:
-
 ```
 inventory/2c:cf:67:b1:ad:03.env
 ```
 
-3. Fill it with device-specific settings (hostname, name, ports, audio device IDs):
+4. Define **only per-device identity and transport**:
 
 ```bash
+# inventory/2c:cf:67:b1:ad:03.env
 SAT_HOSTNAME=ha-satellite-09
-SAT_NAME=ha-satellite-09
-SAT_URI=tcp://0.0.0.0:10700
-SAT_EVENT_URI=tcp://127.0.0.1:10500
-SAT_MIC_COMMAND=arecord -D plughw:CARD=seeed2micvoicec,DEV=0 -r 16000 -c 1 -f S16_LE -t raw
-SAT_SND_COMMAND=aplay  -D plughw:CARD=seeed2micvoicec,DEV=0 -r 22050 -c 1 -f S16_LE -t raw
+
+MQTT_HOST=192.168.1.10
+MQTT_PORT=1883
+MQTT_USER=
+MQTT_PASS=
+
+MQTT_BASE_TOPIC=ha/satellite
 ```
 
-4. Boot the cloned SD card in the new Pi.
-
-On first boot, the bootstrap will:
-- detect MAC
-- pull this repo to `/opt/ha-sat-bootstrap`
-- write `/etc/ha-satellite/satellite.env`
-- set hostname
-- install & enable `ha-satellite.service`
-- disable firstboot forever
+5. Power on the device.
 
 ---
 
-### 3) Verify
+### 3) What Happens on First Boot
+
+On **first boot only**, the system will:
+
+1. Detect the active network interface MAC
+2. Clone this repository to `/opt/ha-sat-bootstrap`
+3. Select `inventory/<mac>.env` (or fallback template)
+4. Write `/etc/ha-satellite/satellite.env`
+5. Set the OS hostname from `SAT_HOSTNAME`
+6. Enable required runtime services
+7. Disable the firstboot service permanently
+
+Subsequent boots skip all provisioning logic.
+
+---
+
+## Verification
+
+After first boot:
 
 ```bash
-systemctl status ha-satellite.service
-journalctl -u ha-satellite.service -f
-cat /var/log/ha-satellite-firstboot.log
+hostname
+cat /etc/hostname
+grep -n '127.0.1.1' /etc/hosts
 ```
 
----
-
-## Diagram
-
-```text
-                 (Golden image SD)
-                        |
-                        | clone/image
-                        v
-                +------------------+
-                | New Raspberry Pi |
-                +------------------+
-                        |
-                        | Boot #1
-                        v
-       +------------------------------------+
-       | ha-satellite-firstboot.service     |
-       |  Exec: /usr/local/sbin/...sh       |
-       +------------------------------------+
-                        |
-                        | 1) Detect MAC
-                        | 2) git clone -> /opt/ha-sat-bootstrap
-                        | 3) inventory/<mac>.env (or template)
-                        | 4) write /etc/ha-satellite/satellite.env
-                        | 5) set hostname
-                        | 6) install+enable ha-satellite.service
-                        | 7) disable firstboot
-                        v
-       +------------------------------------+
-       | ha-satellite.service (runtime)     |
-       |  User: ha-sat                      |
-       |  Exec: /opt/wyoming-satellite/...  |
-       +------------------------------------+
-                        |
-                        v
-               Home Assistant Assist / HA
+Services:
+```bash
+sudo systemctl status ha-satellite-mq-agent.service
+sudo systemctl status assist-volume-restore.service
 ```
 
----
-
-
-This repository provides a **first-boot bootstrap system** for Home Assistant Wyoming voice satellites running on **Raspberry Pi OS Lite**.
-
-It enables:
-
-- Zero-touch provisioning of new satellites
-- Per-device configuration based on **MAC address**
-- Consistent service management via **systemd**
-- A clean **golden image** cloning workflow
-
-Once a golden image is prepared, **new satellites require no manual setup** beyond inserting the SD card and powering on.
-
----
-
-## Architecture Overview
-
-### High-level flow
-
-1. A Raspberry Pi boots from a **golden image**
-2. A one-time systemd service runs:
-   - Detects the Pi’s MAC address
-   - Clones this repository
-   - Selects the correct per-device config
-   - Installs and enables the satellite service
-3. The bootstrap disables itself permanently
-4. The satellite runs normally on every subsequent boot
+Logs:
+```bash
+journalctl -u ha-satellite-firstboot.service -b --no-pager
+```
 
 ---
 
@@ -165,130 +149,88 @@ ha-sat-bootstrap/
 │   ├── ha-satellite-firstboot.sh
 │   └── ha-satellite-firstboot.service
 ├── systemd/
-│   └── ha-satellite.service
+│   ├── ha-satellite-mq-agent.service
+│   └── assist-volume-restore.service
 ├── templates/
 │   └── satellite.env.example
 ├── inventory/
 │   └── <mac>.env
+├── scripts/
+│   └── golden-image-prep.sh
 └── README.md
 ```
 
 ---
 
-## Golden Image Responsibilities
+## Runtime Environment File
 
-The **golden image** contains:
-
-- `/usr/local/sbin/ha-satellite-firstboot.sh`
-- `/etc/systemd/system/ha-satellite-firstboot.service` (enabled)
-- A working Wyoming Satellite install at `/opt/wyoming-satellite`
-- A dedicated service account: `ha-sat` (member of `audio`)
-- Any required hardware support services (e.g. `2mic_leds.service`)
-
-⚠️ The golden image **must not contain per-device identity**.
-
----
-
-## Per-Device Configuration (MAC-based)
-
-Each satellite is identified by the MAC address of its primary network interface.
-
-### Inventory filename format
+The **only runtime config file** is:
 
 ```
-inventory/<mac>.env
+/etc/ha-satellite/satellite.env
 ```
+
+It contains:
+- `SAT_HOSTNAME`
+- MQTT connection details
 
 Example:
-
-```
-inventory/2c:cf:67:b1:ad:03.env
-```
-
----
-
-## Inventory file example
-
 ```bash
 SAT_HOSTNAME=ha-satellite-09
-SAT_NAME=ha-satellite-09
 
-SAT_URI=tcp://0.0.0.0:10700
-SAT_EVENT_URI=tcp://127.0.0.1:10500
-
-SAT_MIC_COMMAND=arecord -D plughw:CARD=seeed2micvoicec,DEV=0 -r 16000 -c 1 -f S16_LE -t raw
-SAT_SND_COMMAND=aplay -D plughw:CARD=seeed2micvoicec,DEV=0 -r 22050 -c 1 -f S16_LE -t raw
+MQTT_HOST=192.168.1.10
+MQTT_PORT=1883
+MQTT_USER=
+MQTT_PASS=
+MQTT_BASE_TOPIC=ha/satellite
 ```
+
+All services consume this file via `EnvironmentFile=`.
 
 ---
 
-## Template Configuration
+## Golden Image Responsibilities
 
-`templates/satellite.env.example` is used **only if no inventory file matches the device MAC**.
+The golden image **must contain**:
+- Firstboot script + systemd unit (enabled)
+- Working Wyoming Satellite install
+- MQTT agent + volume restore services
+- Audio stack fully validated
+
+The golden image **must not contain**:
+- Host-specific identity
+- SSH keys
+- Machine IDs
+- Network identity
+
+---
+
+## Golden Image Preparation Script
+
+A helper script is provided to safely reset identity:
 
 ```bash
-# Fallback defaults – overridden by inventory/<mac>.env
-SAT_HOSTNAME=ha-satellite
-SAT_NAME=ha-satellite
-
-SAT_URI=tcp://0.0.0.0:10700
-SAT_EVENT_URI=tcp://127.0.0.1:10500
-
-SAT_DEBUG=1
-
-SAT_MIC_COMMAND=arecord -D plughw:CARD=seeed2micvoicec,DEV=0 -r 16000 -c 1 -f S16_LE -t raw
-SAT_SND_COMMAND=aplay -D plughw:CARD=seeed2micvoicec,DEV=0 -r 22050 -c 1 -f S16_LE -t raw
+sudo scripts/golden-image-prep.sh
+sudo reboot
 ```
+
+This ensures:
+- Firstboot logic re-runs cleanly
+- Hostname + env are re-applied
+- Services restart in a known-good order
 
 ---
 
-## Firstboot Behavior
+## Audio Notes (WM8960 / Assist)
 
-On **first boot only**, the system will:
+- Hardware: Seeed WM8960 2-Mic HAT (mono speaker)
+- ALSA mixer state is restored via `assist-volume-restore.service`
+- Assist volume is controlled via ALSA `softvol`
+- Wyoming Satellite must use `aplay -D default`
 
-1. Install prerequisites
-2. Detect the active network interface MAC address
-3. Clone this repository to `/opt/ha-sat-bootstrap`
-4. Select the appropriate inventory or template config
-5. Write runtime config to `/etc/ha-satellite/satellite.env`
-6. Set the hostname (if defined)
-7. Install and enable `ha-satellite.service`
-8. Disable the firstboot service permanently
-
----
-
-## Golden Image Preparation Checklist
-
-```bash
-# Stop runtime services
-sudo systemctl stop ha-satellite.service
-sudo systemctl stop ssh
-
-# Reset identity
-sudo rm -f /etc/ssh/ssh_host_*
-sudo truncate -s 0 /etc/machine-id
-sudo rm -f /var/lib/dbus/machine-id
-sudo ln -sf /etc/machine-id /var/lib/dbus/machine-id
-
-# Clear network identity (important for clones)
-sudo rm -f /etc/NetworkManager/system-connections/*
-
-# Re-assert boot policy
-sudo systemctl enable ssh
-sudo systemctl enable ssh-hostkey-bootstrap.service
-sudo systemctl enable NetworkManager
-
-# Optional hygiene
-rm -f /home/scott/.bash_history
-sudo rm -f /root/.bash_history
-
-# Flush filesystem buffers
-sync
-
-# Power off for imaging (do NOT reboot)
-sudo poweroff
-
-```
+**Do not**:
+- Use `hw:` or `plughw:` for playback
+- Modify hardware gain after golden image capture
 
 ---
 
@@ -296,39 +238,21 @@ sudo poweroff
 
 ```bash
 cat /var/log/ha-satellite-firstboot.log
-systemctl status ha-satellite.service
-journalctl -u ha-satellite.service -f
+journalctl -u ha-satellite-mq-agent.service -b
+journalctl -u assist-volume-restore.service -b
 ```
 
-## Audio initialization (WM8960)
+---
 
-Fix WM8960 speaker amp mute / mono routing; restore ALSA golden state on first boot
+## Status
 
-This system uses a Seeed WM8960-based 2-Mic HAT.
+This repository represents **v1** of the bootstrap system:
+- Stable
+- Clone-safe
+- Recoverable
+- Explicit by design
 
-ALSA mixer state is restored on first boot using
-`alsa-firstboot.service`, then persisted normally.
-
-Golden state file:
-- alsa/asound.state.golden
-
-To repro on a new system:
-```bash
-sudo cp alsa/asound.state.golden /boot/
-sudo cp systemd/alsa-firstboot.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable alsa-firstboot.service
-sudo reboot
-
-
-## Audio architecture (WM8960 + Assist)
-
-- Hardware: Seeed WM8960 (mono speaker)
-- ALSA uses `softvol` for Assist volume control
-- Wyoming Satellite must use `aplay -D default`
-- Volume is controlled via `Assist Volume` (sysdefault)
-
-Do NOT:
-- use hw:/plughw: for snd-command
-- rely on media_player volume (not exposed)
-- touch hardware speaker gains
+Future iterations may add:
+- Pre-capture validation
+- Self-test commands
+- Optional Home Assistant discovery
