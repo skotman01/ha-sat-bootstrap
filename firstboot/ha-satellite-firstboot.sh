@@ -21,6 +21,12 @@ RUNTIME_ENV="${RUNTIME_DIR}/satellite.env"
 need_root() { [[ "$(id -u)" -eq 0 ]] || { echo "Run as root"; exit 1; }; }
 need_root
 
+MARKER="${RUNTIME_DIR}/.provisioned"
+if [[ -f "$MARKER" ]]; then
+  echo "Marker exists ($MARKER); skipping firstboot."
+  exit 0
+fi
+
 echo "[1/10] Ensure prerequisites"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
@@ -92,15 +98,42 @@ fi
 
 # Normalize line endings (CRLF → LF) so bash/systemd parse vars correctly
 sed -i 's/\r$//' "$RUNTIME_ENV" || true
+# Strip surrounding quotes on command vars if inventory/template included them
+sed -i -E 's/^(SAT_(MIC_COMMAND|SND_COMMAND))="(.*)"$/\1=\3/' "$RUNTIME_ENV" || true
+
+
 
 echo "[5/10] Optional: set hostname if SAT_HOSTNAME is in env"
+
+# Load env vars from the file we just installed
 set +u
 source "$RUNTIME_ENV" || true
 set -u
+
+# If SAT_HOSTNAME exists but SAT_NAME doesn't, set SAT_NAME to match (once)
+if [[ -n "${SAT_HOSTNAME:-}" && -z "${SAT_NAME:-}" ]]; then
+  # escape '&' for sed replacement safety
+  _hn_sed=${SAT_HOSTNAME//&/\\&}
+
+  if grep -q '^SAT_NAME=' "$RUNTIME_ENV"; then
+    sed -i "s|^SAT_NAME=.*|SAT_NAME=${_hn_sed}|" "$RUNTIME_ENV"
+  else
+    echo "SAT_NAME=${SAT_HOSTNAME}" >> "$RUNTIME_ENV"
+  fi
+
+  # Reload so the shell matches the file
+  set +u
+  source "$RUNTIME_ENV" || true
+  set -u
+fi
+
+# Set OS hostname if provided
 if [[ -n "${SAT_HOSTNAME:-}" ]]; then
   echo "Setting hostname to: $SAT_HOSTNAME"
   hostnamectl set-hostname "$SAT_HOSTNAME"
 fi
+
+
 
 echo "[6/10] Install/enable SSH hostkey bootstrap service"
 SSH_BOOTSTRAP_SRC="${TARGET_DIR}/systemd/ssh-hostkey-bootstrap.service"
@@ -138,6 +171,8 @@ if [[ -f "$MAIN_UNIT_SRC" ]]; then
   systemctl daemon-reload
   systemctl enable ha-satellite.service
   systemctl restart ha-satellite.service || true
+  systemctl reset-failed ha-satellite.service || true
+
 else
   echo "NOTE: No ${MAIN_UNIT_SRC} found; skipping main service install."
 fi
@@ -147,12 +182,9 @@ systemctl enable ssh || true
 systemctl restart ssh || true
 
 
-echo "[9/10] Disable firstboot (one-time run)"
-# Prefer disabling the unit that invoked us
-UNIT_TO_DISABLE="${SYSTEMD_UNIT:-ha-satellite-firstboot.service}"
-systemctl disable "$UNIT_TO_DISABLE" || true
-rm -f "/etc/systemd/system/$UNIT_TO_DISABLE" || true
-systemctl daemon-reload || true
+echo "[9/10] Mark provisioned"
+touch "$MARKER"
+
 
 echo "[10/10] Done"
 echo "=== Firstboot complete: $(date -Is) ==="

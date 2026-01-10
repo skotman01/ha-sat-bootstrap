@@ -1,12 +1,15 @@
 [Unit]
-Description=HA Satellite One-Time First Boot Bootstrap
-After=network-online.target
+Description=HA Satellite First Boot Bootstrap
 Wants=network-online.target
+After=network-online.target
+Before=ha-satellite.service
 
 [Service]
 Type=oneshot
 ExecStart=/bin/bash /boot/ha-satellite-firstboot.sh
+TimeoutStartSec=300
 RemainAfterExit=true
 
 [Install]
 WantedBy=multi-user.target
+WantedBy=ha-satellite.service
