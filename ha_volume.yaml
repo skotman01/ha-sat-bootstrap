@@ -1,84 +1,162 @@
-# Home Assistant MQTT Volume Control for HA Satellites
+# Home Assistant MQTT Volume Control for HA Satellites (Parameterized)
 #
-# How to use:
-# - Copy this file into your Home Assistant `packages/` folder (recommended), OR merge into configuration.yaml.
-# - For each satellite, duplicate the 3 blocks (mqtt.number, mqtt.sensor, template.sensor + optional feedback automation)
-# - Edit ONLY the values marked with "EDIT ME".
+# This file is intended to be included via Home Assistant Packages:
+#   configuration.yaml:
+#     homeassistant:
+#       packages: !include_dir_named packages
+#
+# For each satellite:
+#   - Copy the "Satellite block" section
+#   - Edit the fields marked "EDIT ME"
 #
 # Topic convention assumed:
 #   ha-satellite/<sat_hostname>/volume/set
 #   ha-satellite/<sat_hostname>/volume/state
 #
-# NOTE: Home Assistant YAML does NOT support string interpolation, so we use YAML anchors to
-#       reduce repetition *within* a satellite, and simple copy/paste per satellite.
+# Notes on parameterization:
+# - Home Assistant YAML does NOT support string interpolation.
+# - We use YAML anchors to reduce repetition within a satellite block.
+# - You still copy/paste one block per satellite.
+#
+# -----------------------------------------------------------------------------
+# SATELLITE BLOCK (EXAMPLE: Office)
+# -----------------------------------------------------------------------------
 
 mqtt:
+  # Option A (Recommended): Native MQTT number entity (raw 0-127)
   number:
-    - &sat_volume_number
+    - &office_volume_number
       # EDIT ME (friendly name shown in UI)
-      name: "Office Satellite Volume"
+      name: "Office Satellite Volume (Raw)"
       # EDIT ME (must be unique across HA)
-      unique_id: ha_sat_office_volume
+      unique_id: ha_sat_office_volume_raw_number
 
       # EDIT ME (topics)
       command_topic: &office_volume_set "ha-satellite/ha-satellite-0/volume/set"
       state_topic: &office_volume_state "ha-satellite/ha-satellite-0/volume/state"
 
+      # Raw range used by the satellite agent
       min: 0
-      max: 255
+      max: 127
       step: 1
       qos: 0
       retain: false
 
+  # Raw feedback sensor (optional but useful for dashboards & sync)
   sensor:
-    - &sat_volume_raw_sensor
-      # EDIT ME (friendly name shown in UI)
-      name: "Office Satellite Volume Raw"
-      # EDIT ME (must be unique across HA)
-      unique_id: ha_sat_office_volume_raw
-      # Reuse the same state topic as the number entity
+    - &office_volume_raw_sensor
+      # EDIT ME
+      name: "Office Satellite Volume Raw State"
+      # EDIT ME
+      unique_id: ha_sat_office_volume_raw_state
       state_topic: *office_volume_state
+
 template:
   - sensor:
-      - &sat_volume_percent_sensor
+      # Convenience display: raw -> percent (for dashboards)
+      - &office_volume_percent_sensor
         # EDIT ME
         name: "Office Satellite Volume Percent"
         # EDIT ME
         unique_id: ha_sat_office_volume_percent
         unit_of_measurement: "%"
         state: >
-          {% set v = states('number.office_satellite_volume') | float(0) %}
-          {{ ((v / 255) * 100) | round(0) }}
+          {% set v = states('number.office_satellite_volume_raw') | float(0) %}
+          {{ ((v / 127) * 100) | round(0) }}
 
-# Optional: keep UI in sync if the satellite changes volume externally and publishes state.
-# If you don't need feedback, you can remove this automation block.
+# -----------------------------------------------------------------------------
+# Option B: Percent helper slider -> converts % to raw and publishes to MQTT
+# -----------------------------------------------------------------------------
+#
+# This is a UX upgrade if you want humans to set volume as 0-100%.
+# Create a helper in the UI:
+#   Settings -> Devices & services -> Helpers -> Create helper -> Number
+#
+# Suggested helper settings:
+#   Name: Office Satellite Volume %
+#   Min: 0
+#   Max: 100
+#   Step: 1
+#
+# Helper entity id will look like:
+#   input_number.office_satellite_volume_percent
+#
+# Then enable the automation below (and optionally the sync automation).
+#
+# If you prefer Option A only, you can remove the Option B automations.
+
+input_number:
+  office_satellite_volume_percent:
+    name: "Office Satellite Volume %"
+    min: 0
+    max: 100
+    step: 1
+    mode: slider
+
 automation:
-  - id: ha_sat_office_volume_feedback
-    alias: "Office Satellite: Volume Feedback"
+  # Optional: Keep the native MQTT number entity in sync if state updates externally.
+  # (Leave this enabled if you use Option A.)
+  - id: ha_sat_office_volume_raw_feedback
+    alias: "Office Satellite: Volume Raw Feedback (Number Sync)"
     mode: restart
     trigger:
       - platform: state
-        entity_id: sensor.office_satellite_volume_raw
+        entity_id: sensor.office_satellite_volume_raw_state
     condition:
       - condition: template
         value_template: "{{ trigger.to_state.state is match('^\\d+$') }}"
     action:
-      # Update the *number* entity (Option A). If you use helpers instead, change service accordingly.
       - service: number.set_value
         target:
-          entity_id: number.office_satellite_volume
+          entity_id: number.office_satellite_volume_raw
         data:
-          value: "{{ states('sensor.office_satellite_volume_raw') | int }}"
+          value: "{{ states('sensor.office_satellite_volume_raw_state') | int }}"
 
-# -------------------------------------------------------------------
-# Add another satellite (example)
-# -------------------------------------------------------------------
+  # Option B: % helper -> publish raw 0-127 to satellite
+  - id: ha_sat_office_volume_percent_to_raw
+    alias: "Office Satellite: Volume % → Raw (MQTT Publish)"
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: input_number.office_satellite_volume_percent  # EDIT ME (your helper entity_id)
+    action:
+      - service: mqtt.publish
+        data:
+          topic: *office_volume_set
+          payload: >
+            {% set pct = states('input_number.office_satellite_volume_percent') | float(0) %}
+            {{ ((pct / 100) * 127) | round(0) | int }}
+          qos: 0
+          retain: false
+
+  # Optional: raw state -> % helper sync (keeps the % slider accurate after reboots/external changes)
+  - id: ha_sat_office_volume_raw_to_percent
+    alias: "Office Satellite: Volume Raw → % (Helper Sync)"
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: sensor.office_satellite_volume_raw_state
+    condition:
+      - condition: template
+        value_template: "{{ trigger.to_state.state is match('^\\d+$') }}"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.office_satellite_volume_percent  # EDIT ME (your helper entity_id)
+        data:
+          value: >
+            {% set raw = states('sensor.office_satellite_volume_raw_state') | float(0) %}
+            {{ ((raw / 127) * 100) | round(0) }}
+
+# -----------------------------------------------------------------------------
+# ADD ANOTHER SATELLITE
+# -----------------------------------------------------------------------------
 #
-# 1) Duplicate the mqtt.number entry, mqtt.sensor entry, template sensor, and (optional) automation.
+# 1) Copy everything from "SATELLITE BLOCK" through the automations.
 # 2) Change:
-#    - name
-#    - unique_id
+#    - names / unique_id values
 #    - topics (command_topic/state_topic)
-#    - entity_id references in template + automation
+#    - entity_id references:
+#        number.<...>, sensor.<...>, input_number.<...>
 #
-# Tip: keep your unique_id prefix consistent, e.g. ha_sat_office_...
+# Tip: keep unique_id prefix consistent, e.g. ha_sat_office_...

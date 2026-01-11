@@ -1,0 +1,133 @@
+# Home Assistant MQTT Volume Control for HA Satellites (Fleet / Single-Automation)
+#
+# Satellites publish/subscribe using hostnames like:
+#   ha-satellite-2
+#
+# MQTT topics (your convention):
+#   ha-satellite/<sat_hostname>/set/volume
+#   ha-satellite/<sat_hostname>/state/volume
+#
+# Home Assistant entity_ids cannot contain dashes, so we map:
+#   sat_hostname: ha-satellite-2
+#   sat_id:       ha_satellite_2
+#
+# Naming convention in HA:
+#   input_number.<sat_id>_volume_percent
+# Example:
+#   input_number.ha_satellite_2_volume_percent
+#
+# Include this file via Packages (recommended):
+#   configuration.yaml:
+#     homeassistant:
+#       packages: !include_dir_named packages
+#
+# -----------------------------------------------------------------------------
+# 1) CREATE ONE % SLIDER HELPER PER SATELLITE (YAML-DEFINED)
+# -----------------------------------------------------------------------------
+# Add/duplicate one block per satellite you have.
+
+input_number:
+  ha_satellite_0_volume_percent:
+    name: "HA Office Satellite Volume %"
+    min: 0
+    max: 100
+    step: 1
+    mode: slider
+
+  ha_satellite_2_volume_percent:
+    name: "HA Satellite 2 Volume %"
+    min: 0
+    max: 100
+    step: 1
+    mode: slider
+
+  # Example for another satellite:
+  # ha_satellite_3_volume_percent:
+  #   name: "HA Satellite 3 Volume %"
+  #   min: 0
+  #   max: 100
+  #   step: 1
+  #   mode: slider
+
+# -----------------------------------------------------------------------------
+# 2) SINGLE AUTOMATION: % helper -> raw 0-127 -> MQTT publish
+# -----------------------------------------------------------------------------
+
+automation:
+  - id: ha_sat_all_volume_percent_to_raw
+    alias: "HA Satellites: Volume % → Raw (MQTT)"
+    mode: queued
+    trigger:
+      - platform: event
+        event_type: state_changed
+
+    # Only react to helpers matching: input_number.<sat_id>_volume_percent
+    condition:
+      - condition: template
+        value_template: >
+          {% set e = trigger.event.data.entity_id %}
+          {% set ns = trigger.event.data.new_state %}
+          {{ e is string
+             and e.startswith('input_number.')
+             and e.endswith('_volume_percent')
+             and ns is not none
+             and (ns.state | string) is match('^\d+(\.\d+)?$') }}
+
+    action:
+      - variables:
+          entity_id: "{{ trigger.event.data.entity_id }}"
+          sat_id: >
+            {{ entity_id
+               | replace('input_number.', '')
+               | replace('_volume_percent', '') }}
+          # Map HA sat_id (underscores) -> MQTT sat_hostname (dashes)
+          sat_hostname: "{{ sat_id | replace('_', '-') }}"
+          pct: "{{ trigger.event.data.new_state.state | float(0) }}"
+          raw: "{{ ((pct / 100) * 127) | round(0) | int }}"
+          topic: "ha-satellite/{{ sat_hostname }}/set/volume"
+
+      - service: mqtt.publish
+        data:
+          topic: "{{ topic }}"
+          payload: "{{ raw }}"
+          qos: 0
+          retain: false
+
+# -----------------------------------------------------------------------------
+# 3) OPTIONAL SINGLE AUTOMATION: MQTT state -> % helper sync
+# -----------------------------------------------------------------------------
+# If your satellites publish raw volume (0-127) to:
+#   ha-satellite/<sat_hostname>/state/volume
+#
+# This keeps the % sliders in sync after reboots or external changes.
+#
+# Note: MQTT trigger supports wildcards.
+
+  - id: ha_sat_all_volume_raw_to_percent
+    alias: "HA Satellites: Volume Raw → % (Helper Sync)"
+    mode: queued
+    trigger:
+      - platform: mqtt
+        topic: "ha-satellite/+/state/volume"
+
+    condition:
+      - condition: template
+        value_template: "{{ trigger.payload is match('^\d+$') }}"
+
+    action:
+      - variables:
+          sat_hostname: "{{ trigger.topic.split('/')[1] }}"
+          sat_id: "{{ sat_hostname | replace('-', '_') }}"
+          helper: "input_number.{{ sat_id }}_volume_percent"
+          raw: "{{ trigger.payload | float(0) }}"
+          pct: "{{ ((raw / 127) * 100) | round(0) }}"
+
+      # Only update if the helper exists (so you can add satellites incrementally)
+      - condition: template
+        value_template: "{{ states(helper) not in ['unknown','unavailable','none'] }}"
+
+      - service: input_number.set_value
+        target:
+          entity_id: "{{ helper }}"
+        data:
+          value: "{{ pct }}"
