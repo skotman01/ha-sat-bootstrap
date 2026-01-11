@@ -165,26 +165,6 @@ journalctl -u ha-satellite-firstboot.service -b --no-pager
 
 ---
 
-## Repository Structure
-
-```
-ha-sat-bootstrap/
-├── firstboot/
-│   ├── ha-satellite-firstboot.sh
-│   └── ha-satellite-firstboot.service
-├── systemd/
-│   ├── ha-satellite-mq-agent.service
-│   └── assist-volume-restore.service
-├── templates/
-│   └── satellite.env.example
-├── scripts/
-│   └── golden-image-prep.sh
-├── INSTALL.md
-└── README.md
-```
-
----
-
 ## Runtime Environment File
 
 The **only runtime config file** is:
