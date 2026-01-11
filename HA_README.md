@@ -23,8 +23,8 @@ This is intentionally separated from the main bootstrap README.
 - MQTT topics follow this pattern:
 
 ```
-ha-satellite/<sat_hostname>/volume/set
-ha-satellite/<sat_hostname>/volume/state
+ha-satellite/<sat_hostname>/set/volume
+ha-satellite/<sat_hostname>/state/volume
 ```
 
 ---
@@ -75,7 +75,7 @@ Restart Home Assistant.
 If your agent uses a different range, update:
 ```yaml
 min: 0
-max: 255
+max: 127
 ```
 
 And adjust the percent sensor math accordingly.

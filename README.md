@@ -42,7 +42,7 @@ Once a golden image is prepared, **new satellites require no manual setup** beyo
 Most users should **clone** this repository directly:
 
 ```bash
-git clone https://github.com/<your-org-or-user>/ha-sat-bootstrap.git
+git clone https://www.github.com/skotman01/ha-sat-bootstrap.git
 ```
 
 Fork this repository **only if** you plan to:

@@ -145,10 +145,6 @@ sudo usermod -aG audio ha-sat
 
 ---
 
-## Fork this
-
-
-
 ## Install Bootstrap Repo
 
 ```bash
