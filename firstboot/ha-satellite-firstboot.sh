@@ -105,6 +105,11 @@ pick_env() {
 fetch_env() {
   local url="$1"
   echo "Attempting fetch: $url"
+  echo "Waiting briefly for DNS/network..."
+  for i in {1..10}; do
+    getent hosts www.google.com >/dev/null 2>&1 && break
+    sleep 1
+  done
 
   local curl_args=(-fsSL --connect-timeout 5 --max-time 15)
   if [[ -n "${INV_USER:-}" && -n "${INV_TOKEN:-}" ]]; then
