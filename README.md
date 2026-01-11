@@ -27,7 +27,7 @@ Once a golden image is prepared, **new satellites require no manual setup** beyo
   - Runtime config: `/etc/ha-satellite/satellite.env`
   - Identity variable: `SAT_HOSTNAME`
 - **No identity in Git**
-  - Hostnames, MACs, credentials are never committed
+  - Hostnames, MACs, credentials are never committed to this repo
 - **Idempotent**
   - Firstboot may safely re-run after re-imaging
 - **Clone-safe**
@@ -37,18 +37,19 @@ Once a golden image is prepared, **new satellites require no manual setup** beyo
 
 ---
 
-## Clone vs Fork
+## Centralized Fleet Management Option
 
-Most users should **clone** this repository directly:
+If you'd like to manage your fleet configs via a central repository, create the file ha-satellite.env in 
+/boot or /bootfs. INV_BASE_URL is the base URL for the inventory files. 
 
-```bash
-git clone https://www.github.com/skotman01/ha-sat-bootstrap.git
+```
+INV_BASE_URL="https://<your repo><path to raw files>"
+INV_USER="deploy-token-user"
+INV_TOKEN="xxxxx"
 ```
 
-Fork this repository **only if** you plan to:
-- modify bootstrap behavior
-- support alternate hardware
-- contribute changes upstream
+Each satellite needs a file named with the mac address of the satellite `xx:xx:xx:xx:xx:xx.env` or `xxxxxxxxxxxx.env`
+and use the template stored in `templates\satellite.env.example`.
 
 ---
 
