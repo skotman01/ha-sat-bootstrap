@@ -13,14 +13,15 @@ def hostname_short() -> str:
     return socket.gethostname().split(".")[0]
 
 
-HOST = hostname_short()
+HOST = os.getenv("SAT_HOSTNAME", hostname_short())
 
 MQTT_HOST = os.getenv("MQTT_HOST", "127.0.0.1")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USER = os.getenv("MQTT_USER", "")
 MQTT_PASS = os.getenv("MQTT_PASS", "")
 
-MQTT_BASE = os.getenv("MQTT_BASE", "ha-satellite")
+MQTT_BASE = os.getenv("MQTT_BASE", os.getenv("MQTT_BASE_TOPIC", "ha-satellite"))
+
 
 # ALSA settings
 ALSA_CARD = os.getenv("ALSA_CARD", "1")
