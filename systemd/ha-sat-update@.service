@@ -1,0 +1,12 @@
+[Unit]
+Description=HA Satellite Update Runner (%i)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Pull in same env file your agent uses (optional but convenient)
+EnvironmentFile=-/etc/ha-satellite/satellite.env
+# Pass ref via instance name if you want later; for now we just use "main" or default
+ExecStart=/opt/ha-sat-bootstrap/scripts/ha-sat-update.sh update ${UPDATE_REF:-main}
+TimeoutStartSec=900

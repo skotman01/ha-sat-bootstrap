@@ -37,6 +37,16 @@ TOPIC_DEVICE_SET = f"{MQTT_BASE}/{HOST}/set/volume"
 TOPIC_ALL_SET = f"{MQTT_BASE}/all/set/volume"
 TOPIC_STATE = f"{MQTT_BASE}/{HOST}/state/volume"
 
+# Update/maintenance topics
+TOPIC_CMD_DEVICE = f"{MQTT_BASE}/{HOST}/cmd"
+TOPIC_CMD_FLEET = f"{MQTT_BASE}/fleet/cmd"
+TOPIC_STATUS = f"{MQTT_BASE}/{HOST}/status"
+
+REPO_DIR = os.getenv("REPO_DIR", "/opt/ha-sat-bootstrap")
+UPDATE_UNIT_PREFIX = os.getenv("UPDATE_UNIT_PREFIX", "ha-sat-update@")
+
+START_TS = time.time()
+
 
 def log(msg: str) -> None:
     print(msg, flush=True)
@@ -97,15 +107,109 @@ def set_alsa_volume(vol: int) -> bool:
         log("ERROR: /usr/bin/amixer not found")
         return False
 
+def iso_utc() -> str:
+    # Avoid datetime import; keep dependencies minimal
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def get_git_rev() -> str:
+    try:
+        r = subprocess.run(
+            ["git", "-C", REPO_DIR, "rev-parse", "--short", "HEAD"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+        )
+        return r.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def publish_status(client: mqtt.Client, state: str, action: str, msg: str, **extra) -> None:
+    payload = {
+        "host": HOST,
+        "state": state,
+        "action": action,
+        "msg": msg,
+        "ts": iso_utc(),
+        "uptime_s": int(time.time() - START_TS),
+        **extra,
+    }
+    client.publish(TOPIC_STATUS, json.dumps(payload), qos=1, retain=True)
+
+
+def try_start_update_unit(ref: str) -> tuple[bool, str]:
+    token = str(int(time.time()))
+    unit = f"{UPDATE_UNIT_PREFIX}{token}.service"
+    try:
+        subprocess.run(
+            ["systemctl", "start", unit],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+            timeout=10,
+            env={**os.environ, "UPDATE_REF": ref},
+        )
+        return True, unit
+    except Exception as e:
+        return False, f"{unit}: {e}"
+
 
 def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties=None):
     log(f"Connected to MQTT {MQTT_HOST}:{MQTT_PORT} as {HOST} (reason={reason_code})")
     client.subscribe(TOPIC_DEVICE_SET, qos=QOS)
     client.subscribe(TOPIC_ALL_SET, qos=QOS)
-    log(f"Subscribed: {TOPIC_DEVICE_SET}, {TOPIC_ALL_SET}")
+
+    # Command topics
+    client.subscribe(TOPIC_CMD_DEVICE, qos=1)
+    client.subscribe(TOPIC_CMD_FLEET, qos=1)
+
+    log(f"Subscribed: {TOPIC_DEVICE_SET}, {TOPIC_ALL_SET}, {TOPIC_CMD_DEVICE}, {TOPIC_CMD_FLEET}")
+
+    # Presence/status (retained)
+    publish_status(client, state="online", action="boot", msg="mq_agent connected", rev=get_git_rev())
+
 
 
 def on_message(client: mqtt.Client, userdata, msg: mqtt.MQTTMessage):
+    # First: handle maintenance commands
+    if msg.topic in (TOPIC_CMD_DEVICE, TOPIC_CMD_FLEET):
+        s = msg.payload.decode("utf-8", errors="ignore").strip()
+        if not s:
+            publish_status(client, state="error", action="cmd", msg="empty payload")
+            return
+
+        try:
+            obj = json.loads(s)
+        except Exception:
+            publish_status(client, state="error", action="cmd", msg="invalid json")
+            return
+
+        if not isinstance(obj, dict):
+            publish_status(client, state="error", action="cmd", msg="json must be an object")
+            return
+
+        cmd = str(obj.get("cmd", "")).strip().lower()
+        if cmd == "status":
+            publish_status(client, state="ok", action="status", msg="report", rev=get_git_rev())
+            return
+
+        if cmd == "update":
+            ref = str(obj.get("ref", "main")).strip() or "main"
+            publish_status(client, state="running", action="update", msg="starting", ref=ref, from_rev=get_git_rev())
+            ok, detail = try_start_update_unit(ref)
+            if ok:
+                publish_status(client, state="running", action="update", msg="update unit started", ref=ref, unit=detail)
+            else:
+                publish_status(client, state="error", action="update", msg="failed to start update unit", ref=ref, error=detail)
+            return
+
+        publish_status(client, state="error", action="cmd", msg=f"unknown cmd: {cmd}")
+        return
+
+    # Otherwise: your existing volume handler
     vol = parse_volume(msg.payload)
     if vol is None:
         log(f"Ignoring invalid payload on {msg.topic}: {msg.payload!r}")
@@ -118,6 +222,7 @@ def on_message(client: mqtt.Client, userdata, msg: mqtt.MQTTMessage):
         log(f"Set volume={vol} (topic={msg.topic})")
         if PUBLISH_STATE:
             client.publish(TOPIC_STATE, str(vol), qos=QOS, retain=RETAIN_STATE)
+
 
 
 def main() -> int:
